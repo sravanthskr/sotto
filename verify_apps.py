@@ -1,22 +1,26 @@
+"""
+verify_apps.py - list every application the scanner can currently find.
+
+Run:  python verify_apps.py
+If an app is missing, add its .exe path to CUSTOM_APP_PATHS in tools.py.
+"""
+
 import tools
 
-# Build the cache using the new tool that scans Start Menu + Taskbar
-tools.build_start_menu_cache()
 
-print("\n--- ALL APPS FOUND IN CACHE ---")
-# Sort them alphabetically so it's easy to read
-for app in sorted(tools.START_MENU_CACHE.keys()):
-    print(app)
-print("-------------------------------\n")
-print(f"Total apps found: {len(tools.START_MENU_CACHE)}")
+def main():
+    tools.build_app_index(verbose=True)
+    print("\n--- ALL APPS FOUND ---")
+    for name in sorted(tools.APP_INDEX):
+        print(f"  {name}")
+    print("----------------------")
+    print(f"Total apps found: {len(tools.APP_INDEX)}")
 
-# Check specifically for Telegram
-print("\nSearching for Telegram specifically...")
-telegram_found = False
-for app in tools.START_MENU_CACHE:
-    if "telegram" in app:
-        telegram_found = True
-        print(f"FOUND: {app}")
+    print("\nLooking for a few common ones...")
+    for probe in ("telegram", "chrome", "vlc", "pycharm", "musicbee"):
+        target = tools.resolve_app(probe)
+        print(f"  {probe:10} -> {target or 'NOT FOUND'}")
 
-if not telegram_found:
-    print("Telegram still NOT found in cache. You will need to use the manual override path.")
+
+if __name__ == "__main__":
+    main()
