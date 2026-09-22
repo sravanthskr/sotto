@@ -21,6 +21,8 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 import audit
+import briefing
+import display
 import fileops
 import sysactions
 import winctl
@@ -1003,3 +1005,78 @@ def show_audit(limit=15):
     return "\n".join(
         f"{r['ts']}  {r['tool']}  {r['args']} -> {r['result'][:80]}" for r in rows
     )
+
+
+# ---------------------------------------------------------------------------
+# Display & windows
+# ---------------------------------------------------------------------------
+@tool(
+    name="snap_window",
+    description=("Snap a window to a position: left, right, top, bottom, center, "
+                 "maximize, or restore."),
+    parameters={"type": "object", "properties": {
+        "title": {"type": "string", "description": "Window title (partial ok)."},
+        "position": {"type": "string",
+                     "description": "left/right/top/bottom/center/maximize/restore"}},
+        "required": ["title", "position"]},
+)
+def snap_window(title, position):
+    found = winctl.snap(title, position)
+    if found:
+        return f"Snapped '{found}' to the {position}."
+    return f"Error: couldn't find a window matching '{title}'."
+
+
+@tool(
+    name="set_brightness",
+    description="Set the screen brightness to a percentage (0-100).",
+    parameters={"type": "object", "properties": {"percent": {"type": "integer"}},
+                "required": ["percent"]},
+)
+def set_brightness(percent):
+    return display.set_brightness(percent)
+
+
+@tool(name="get_brightness", description="Get the current screen brightness percentage.")
+def get_brightness():
+    value = display.get_brightness()
+    if value is None:
+        return "This display won't report brightness."
+    return f"Brightness is {value}%."
+
+
+@tool(
+    name="set_volume",
+    description="Set the system volume to an exact percentage (0-100).",
+    parameters={"type": "object", "properties": {"percent": {"type": "integer"}},
+                "required": ["percent"]},
+)
+def set_volume(percent):
+    return display.set_volume(percent)
+
+
+@tool(name="get_volume", description="Get the current system volume percentage.")
+def get_volume():
+    value = display.get_volume()
+    return f"Volume is {value}%." if value is not None else "Couldn't read the volume."
+
+
+@tool(
+    name="get_weather",
+    description="Get a short weather line for a city (or the user's current location).",
+    parameters={"type": "object", "properties": {
+        "city": {"type": "string", "description": "City name (optional)."}}, "required": []},
+)
+def get_weather(city=""):
+    return briefing.get_weather(city)
+
+
+@tool(
+    name="daily_briefing",
+    description="A quick briefing: greeting, date/time, weather, reminders, disk space.",
+    parameters={"type": "object", "properties": {
+        "city": {"type": "string", "description": "City for the weather (optional)."}},
+        "required": []},
+)
+def daily_briefing(city=""):
+    return briefing.daily_briefing(city, reminders=_REMINDERS)

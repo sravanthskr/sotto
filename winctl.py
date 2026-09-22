@@ -94,3 +94,55 @@ def maximize(title):
         return None
     _user32.ShowWindow(hwnd, SW_MAXIMIZE)
     return found
+
+
+# ---------------------------------------------------------------------------
+# Snapping
+# ---------------------------------------------------------------------------
+SPI_GETWORKAREA = 0x0030
+
+
+def _work_area():
+    """(left, top, right, bottom) of the usable desktop (excludes the taskbar)."""
+    rect = wintypes.RECT()
+    ok = _user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
+    if not ok:
+        return 0, 0, _user32.GetSystemMetrics(0), _user32.GetSystemMetrics(1)
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
+def snap(title, position):
+    """Snap a window to a screen position.
+
+    position: left / right / top / bottom / center / maximize / restore.
+    """
+    hwnd, found = _find(title)
+    if hwnd is None:
+        return None
+    pos = (position or "").lower().strip()
+    left, top, right, bottom = _work_area()
+    w, h = right - left, bottom - top
+
+    if pos in ("maximize", "maximise", "max", "full"):
+        _user32.ShowWindow(hwnd, SW_MAXIMIZE)
+        return found
+    if pos in ("restore", "normal"):
+        _user32.ShowWindow(hwnd, SW_RESTORE)
+        return found
+    if pos in ("left", "left half"):
+        geom = (left, top, w // 2, h)
+    elif pos in ("right", "right half"):
+        geom = (left + w // 2, top, w - w // 2, h)
+    elif pos in ("top", "top half"):
+        geom = (left, top, w, h // 2)
+    elif pos in ("bottom", "bottom half"):
+        geom = (left, top + h // 2, w, h - h // 2)
+    elif pos in ("center", "centre", "middle"):
+        cw, ch = int(w * 0.6), int(h * 0.7)
+        geom = (left + (w - cw) // 2, top + (h - ch) // 2, cw, ch)
+    else:
+        return None
+
+    _user32.ShowWindow(hwnd, SW_RESTORE)
+    _user32.MoveWindow(hwnd, geom[0], geom[1], geom[2], geom[3], True)
+    return found

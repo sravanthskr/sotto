@@ -38,6 +38,8 @@ your API key, your memory file, your file paths.
 | `confirm.py` | Native Windows confirmation dialog for risky actions. |
 | `learn.py` | Quietly mines the chat for durable facts to remember. |
 | `audit.py` | Local log of every action taken. |
+| `display.py` | Screen brightness + exact master volume. |
+| `briefing.py` | Weather + daily briefing. |
 | `main.py` | The loop: context building, tool dispatch, memory compression. |
 | `selftest.py` | Offline checks (no API key needed). |
 | `verify_apps.py` | Lists every app the scanner can find. |
@@ -84,6 +86,9 @@ python main.py
 - **Reads files** - summarise or answer questions about txt/md/code/PDF/docx
 - **Finds files** - by name, or search inside them
 - **Audit log** - see every action it took
+- **Window snapping** - left / right / top / bottom / centre / maximise
+- **Brightness** and **exact volume** percentage
+- **Weather** and a **daily briefing** (time, weather, reminders, disk)
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
 
 ## Safety
@@ -150,5 +155,6 @@ Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant wil
 - [x] Reminders, notes, window control, file organising (with undo)
 - [x] System actions with confirmation, safe delete, web answers, streaming replies
 - [x] Auto-learning memory, recall/forget, file reading + search, audit log, settings.json
+- [x] Window snapping, brightness, exact volume, weather + daily briefing
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
 - [ ] UI (Bring Your Own Key)

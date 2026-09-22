@@ -3,3 +3,5 @@ python-dotenv>=1.0.0
 Pillow>=10.0.0
 ddgs>=6.0.0
 pypdf>=4.0.0
+pycaw>=20230407
+comtypes>=1.4.0

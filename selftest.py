@@ -11,6 +11,8 @@ import time as _time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import briefing
+import display
 import fileops
 import tools
 import winctl
@@ -138,6 +140,24 @@ def main():
     print("\n== new tool registry entries ==")
     for n in ("list_facts", "forget_fact", "read_file", "find_files",
               "find_in_files", "show_audit"):
+        assert n in tools.REGISTRY, n
+    print("  all present")
+
+    print("\n== display & briefing ==")
+    vol = display.get_volume()
+    br = display.get_brightness()
+    print(f"  volume={vol} brightness={br}  (None = not supported on this display)")
+    left, top, right, bottom = winctl._work_area()
+    assert right > left and bottom > top, (left, top, right, bottom)
+    print(f"  work area ok: {right - left}x{bottom - top}")
+    assert briefing.greeting_for(9) == "Good morning"
+    assert briefing.greeting_for(15) == "Good afternoon"
+    assert briefing.greeting_for(21) == "Good evening"
+    print("  greeting logic ok")
+
+    print("\n== registry: display + briefing tools ==")
+    for n in ("snap_window", "set_brightness", "get_brightness", "set_volume", "get_volume",
+              "get_weather", "daily_briefing"):
         assert n in tools.REGISTRY, n
     print("  all present")
 
