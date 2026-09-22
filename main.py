@@ -7,6 +7,7 @@ crashes the loop on a bad tool call.
 """
 
 import json
+from datetime import datetime
 
 from config import (
     MODEL_NAME, SYSTEM_PROMPT, RECENT_TURNS_KEPT, SUMMARIZE_WHEN_TURNS_OVER,
@@ -15,10 +16,15 @@ from config import (
 import ai_engine
 import tools
 from memory import Memory
+from notes import Notes
+from reminders import ReminderManager
 
 
 def build_messages(memory, turns, user_text):
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+    now = datetime.now()
+    msgs.append({"role": "system",
+                 "content": f"Current date and time: {now:%A %d %B %Y, %H:%M}."})
     ctx = memory.context_block()
     if ctx:
         msgs.append({"role": "system", "content": ctx})
@@ -105,31 +111,50 @@ def _maybe_compress(memory, turns):
     print("  [memory: compressed older turns]")
 
 
+def _on_reminder(reminder):
+    print(f"\n*** Reminder: {reminder['message']} ***\n")
+
+
 def main():
     print(f"Starting up... (model: {MODEL_NAME})")
     tools.build_app_index(verbose=True)
+
     mem = Memory()
     tools.set_memory(mem)
+
+    notes = Notes()
+    tools.set_notes(notes)
+
+    reminders = ReminderManager(on_fire=_on_reminder)
+    tools.set_reminders(reminders)
+    reminders.start()
+
     facts = mem.facts()
     if facts:
         print(f"[memory] remembered {len(facts)} thing(s) about you.")
+    pending = reminders.pending_count()
+    if pending:
+        print(f"[reminders] {pending} reminder(s) waiting.")
     print("Ready. Type 'exit' to quit.\n")
 
     turns = []
-    while True:
-        try:
-            user_text = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-        if not user_text:
-            continue
-        if user_text.lower() in ("exit", "quit"):
-            break
-        try:
-            handle_turn(mem, turns, user_text)
-        except Exception as e:
-            print(f"  [error] {e}")
+    try:
+        while True:
+            try:
+                user_text = input("You: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if not user_text:
+                continue
+            if user_text.lower() in ("exit", "quit"):
+                break
+            try:
+                handle_turn(mem, turns, user_text)
+            except Exception as e:
+                print(f"  [error] {e}")
+    finally:
+        reminders.stop()
 
 
 if __name__ == "__main__":

@@ -31,9 +31,14 @@ MAX_TOOL_ROUNDS = 5            # max tool-call rounds inside a single user turn
 # ---------------------------------------------------------------------------
 # Storage (100% local - nothing here ever leaves the machine)
 # ---------------------------------------------------------------------------
+_HOME = Path(os.getenv("USERPROFILE") or Path.home())
 DATA_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "RealAssistant"
 MEMORY_FILE = DATA_DIR / "memory.json"
-SCREENSHOT_DIR = Path(os.getenv("USERPROFILE") or Path.home()) / "Pictures" / "RealAssistant"
+REMINDERS_FILE = DATA_DIR / "reminders.json"
+NOTES_FILE = DATA_DIR / "notes.json"
+ORGANIZE_LOG = DATA_DIR / "organize_undo.json"
+SCREENSHOT_DIR = _HOME / "Pictures" / "RealAssistant"
+DOWNLOADS_DIR = _HOME / "Downloads"
 
 # ---------------------------------------------------------------------------
 # Persona - this is the soul of the thing. Keep it human.

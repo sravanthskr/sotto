@@ -16,11 +16,13 @@ import shutil
 import subprocess
 import webbrowser
 import winreg
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from config import SCREENSHOT_DIR
+import fileops
+import winctl
+from config import SCREENSHOT_DIR, DOWNLOADS_DIR
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -506,3 +508,212 @@ def write_clipboard(text):
     except Exception as e:
         return f"Error: {e}"
     return "Copied to the clipboard." if r.returncode == 0 else "Error: couldn't copy."
+
+
+# ---------------------------------------------------------------------------
+# Reminders  (the manager itself is created in main.py and injected here)
+# ---------------------------------------------------------------------------
+_REMINDERS = None
+_NOTES = None
+
+
+def set_reminders(manager):
+    global _REMINDERS
+    _REMINDERS = manager
+
+
+def set_notes(store):
+    global _NOTES
+    _NOTES = store
+
+
+def _parse_when(minutes, at):
+    """Work out a due datetime from 'in N minutes' or a clock time."""
+    now = datetime.now()
+    if minutes not in (None, "", 0, "0"):
+        try:
+            return now + timedelta(minutes=float(minutes))
+        except (TypeError, ValueError):
+            pass
+    if at:
+        s = str(at).strip()
+        try:
+            return datetime.fromisoformat(s)
+        except ValueError:
+            pass
+        for fmt in ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I%p", "%I:%M%p"):
+            try:
+                t = datetime.strptime(s, fmt)
+            except ValueError:
+                continue
+            due = now.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+            if due <= now:
+                due += timedelta(days=1)
+            return due
+    return None
+
+
+@tool(
+    name="set_reminder",
+    description=("Set a reminder. Give either 'minutes' (e.g. 20 for 'in 20 minutes') "
+                 "or 'at' (a clock time like '18:30' or '7:00 PM')."),
+    parameters={
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "What to remind the user about."},
+            "minutes": {"type": "number", "description": "Delay in minutes from now."},
+            "at": {"type": "string", "description": "Clock time, e.g. '18:30' or '7:00 PM'."},
+        },
+        "required": ["message"],
+    },
+)
+def set_reminder(message, minutes=None, at=None):
+    if _REMINDERS is None:
+        return "Error: reminders aren't available right now."
+    due = _parse_when(minutes, at)
+    if due is None:
+        return "Error: I need a time - tell me how many minutes, or what time of day."
+    _REMINDERS.add(message, due)
+    return f"Reminder set for {due:%H:%M}: {message}"
+
+
+@tool(name="list_reminders", description="List pending reminders.")
+def list_reminders():
+    if _REMINDERS is None:
+        return "Error: reminders aren't available right now."
+    items = _REMINDERS.list()
+    if not items:
+        return "No reminders set."
+    return "; ".join(
+        f"[{r['id']}] {r['message']} at {datetime.fromisoformat(r['due']):%Y-%m-%d %H:%M}"
+        for r in items
+    )
+
+
+@tool(
+    name="cancel_reminder",
+    description="Cancel a reminder by its id.",
+    parameters={
+        "type": "object",
+        "properties": {"id": {"type": "string", "description": "Reminder id from list_reminders."}},
+        "required": ["id"],
+    },
+)
+def cancel_reminder(id):
+    if _REMINDERS is None:
+        return "Error: reminders aren't available right now."
+    removed = _REMINDERS.cancel(id)
+    return "Cancelled." if removed else f"Error: no reminder with id '{id}'."
+
+
+# ---------------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------------
+@tool(
+    name="add_note",
+    description="Save a short note the user can ask for later.",
+    parameters={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+)
+def add_note(text):
+    if _NOTES is None:
+        return "Error: notes aren't available right now."
+    return _NOTES.add(text)
+
+
+@tool(name="list_notes", description="List the most recent notes.")
+def list_notes():
+    if _NOTES is None:
+        return "Error: notes aren't available right now."
+    items = _NOTES.list()
+    if not items:
+        return "No notes yet."
+    return " | ".join(n["text"] for n in items)
+
+
+@tool(
+    name="search_notes",
+    description="Search saved notes for a word or phrase.",
+    parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+)
+def search_notes(query):
+    if _NOTES is None:
+        return "Error: notes aren't available right now."
+    hits = _NOTES.search(query)
+    if not hits:
+        return f"No notes mentioning '{query}'."
+    return " | ".join(n["text"] for n in hits)
+
+
+# ---------------------------------------------------------------------------
+# Window control
+# ---------------------------------------------------------------------------
+@tool(name="list_windows", description="List the titles of currently open windows.")
+def list_windows():
+    titles = winctl.list_windows()
+    return " | ".join(titles) if titles else "No visible windows."
+
+
+@tool(
+    name="focus_window",
+    description="Bring an open window to the front by (partial) title.",
+    parameters={"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]},
+)
+def focus_window(title):
+    found = winctl.focus(title)
+    return f"Focused '{found}'." if found else f"Error: no window matching '{title}'."
+
+
+@tool(
+    name="minimize_window",
+    description="Minimise an open window by (partial) title.",
+    parameters={"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]},
+)
+def minimize_window(title):
+    found = winctl.minimize(title)
+    return f"Minimised '{found}'." if found else f"Error: no window matching '{title}'."
+
+
+@tool(
+    name="maximize_window",
+    description="Maximise an open window by (partial) title.",
+    parameters={"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]},
+)
+def maximize_window(title):
+    found = winctl.maximize(title)
+    return f"Maximised '{found}'." if found else f"Error: no window matching '{title}'."
+
+
+# ---------------------------------------------------------------------------
+# Files
+# ---------------------------------------------------------------------------
+@tool(
+    name="list_folder",
+    description="List what's inside a folder. Defaults to the Downloads folder.",
+    parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": []},
+)
+def list_folder(path=""):
+    raw = (path or "").strip()
+    p = DOWNLOADS_DIR if not raw else Path(os.path.expandvars(os.path.expanduser(raw)))
+    dirs, files = fileops.list_folder(p)
+    if dirs is None:
+        return f"Error: there's no folder at {p}."
+    return f"{p}: {len(dirs)} folders, {len(files)} files. Files: {', '.join(files) or '(none)'}"
+
+
+@tool(
+    name="organize_downloads",
+    description=("Sort the loose files in the Downloads folder into category subfolders "
+                 "(Images, Documents, Videos, etc). Can be undone."),
+    danger=True,
+)
+def organize_downloads():
+    return fileops.organize_downloads()
+
+
+@tool(
+    name="undo_organize",
+    description="Undo the last organize_downloads, moving the files back.",
+    danger=True,
+)
+def undo_organize():
+    return fileops.undo_organize()

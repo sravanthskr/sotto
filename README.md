@@ -30,6 +30,10 @@ your API key, your memory file, your file paths.
 | `ai_engine.py` | Groq client, retries, message helpers, summarisation. |
 | `tools.py` | The **hands**: tool registry + app discovery + every capability. |
 | `memory.py` | Persistent local memory (`%LOCALAPPDATA%\RealAssistant\memory.json`). |
+| `reminders.py` | Timers/reminders with a background thread; survive restarts. |
+| `notes.py` | Quick local notes (`notes.json`). |
+| `winctl.py` | Window control (list / focus / minimise / maximise) via Win32. |
+| `fileops.py` | File organising for Downloads, with undo. |
 | `main.py` | The loop: context building, tool dispatch, memory compression. |
 | `selftest.py` | Offline checks (no API key needed). |
 | `verify_apps.py` | Lists every app the scanner can find. |
@@ -63,6 +67,10 @@ python main.py
 - **Media & volume control** (play/pause, next, previous, mute, volume up/down)
 - **Clipboard** read and write
 - **System info** (time, free disk space, battery)
+- **Reminders** ("remind me in 20 minutes", "at 7pm") - persisted, fire while the app runs
+- **Notes** you can add, list, and search
+- **Window control** - list open windows and focus / minimise / maximise one
+- **File organising** - sort Downloads into folders by type, with undo
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
 - **Remember facts** about you across sessions
 
@@ -102,6 +110,8 @@ Set `danger=True` if the action is destructive; then the assistant will ask you 
 - [x] Text loop, persona, tool calling, app scanner
 - [x] Persistent memory, hardened app discovery, multi-tool chaining, graceful errors
 - [x] Web search / open site, screenshot, remember, folders, media/volume, clipboard, system info
-- [ ] More tools: file organising, timers/reminders, window control, notes
+- [x] Reminders, notes, window control, file organising (with undo)
+- [ ] More tools: system actions (lock/sleep/shutdown), reading web results as text
+- [ ] Streaming replies so it feels live
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
 - [ ] UI (Bring Your Own Key)
