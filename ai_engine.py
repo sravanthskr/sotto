@@ -127,12 +127,12 @@ def summarize(messages):
             {"role": "user", "content": _flatten(messages)},
         ],
         temperature=0.3,
-        max_tokens=220,
+        max_tokens=600,
     )
     return out.choices[0].message.content.strip()
 
 
-def complete(messages, max_tokens=200, temperature=0.0):
+def complete(messages, max_tokens=600, temperature=0.0):
     """A plain, non-streaming completion that returns just the text."""
     out = _create(model=MODEL_NAME, messages=messages,
                   temperature=temperature, max_tokens=max_tokens)

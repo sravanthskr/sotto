@@ -53,7 +53,7 @@ def extract_facts(messages, known):
         {"role": "user", "content": f"ALREADY KNOWN: {known_block}\n\nCONVERSATION:\n{convo}"},
     ]
     try:
-        raw = ai_engine.complete(prompt, max_tokens=200, temperature=0.0)
+        raw = ai_engine.complete(prompt, max_tokens=800, temperature=0.0)
     except Exception:
         return []
     return parse_facts(raw)
