@@ -7,6 +7,7 @@ crashes the loop on a bad tool call.
 """
 
 import json
+import sys
 from datetime import datetime
 
 from config import (
@@ -18,6 +19,18 @@ import tools
 from memory import Memory
 from notes import Notes
 from reminders import ReminderManager
+
+
+def _setup_console():
+    """Stop non-cp1252 characters (smart quotes, dashes) from crashing output."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_setup_console()
 
 
 def build_messages(memory, turns, user_text):
