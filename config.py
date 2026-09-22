@@ -1,25 +1,19 @@
 """
-config.py - All settings, paths, and the assistant's personality.
+config.py - settings, paths, and the assistant's personality.
 
-Everything you might want to tweak lives here. Nothing else in the project should
-hardcode paths, model names, or persona rules.
+Everything you might want to tweak lives here (or in settings.json - see below).
+Nothing else in the project should hardcode paths, model names, or persona rules.
 """
 
+import json
 import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Identity
 # ---------------------------------------------------------------------------
-ASSISTANT_NAME = "Assistant"   # what it calls itself (only used internally for now)
+ASSISTANT_NAME = "Assistant"   # what it calls itself (internal for now)
 USER_NAME = ""                 # leave blank; it learns this. Set it to force it.
-
-# ---------------------------------------------------------------------------
-# Model / API
-# ---------------------------------------------------------------------------
-MODEL_NAME = "openai/gpt-oss-20b"
-TEMPERATURE = 0.6
-MAX_TOKENS = 400               # keeps replies short; raise if you want longer answers
 
 # ---------------------------------------------------------------------------
 # Conversation memory
@@ -27,6 +21,7 @@ MAX_TOKENS = 400               # keeps replies short; raise if you want longer a
 RECENT_TURNS_KEPT = 8          # how many recent turns stay verbatim in context
 SUMMARIZE_WHEN_TURNS_OVER = 12 # once we exceed this, the oldest turns get compressed
 MAX_TOOL_ROUNDS = 5            # max tool-call rounds inside a single user turn
+LEARN_EVERY_N_TURNS = 1        # how often to mine the chat for durable facts (1 = every turn)
 
 # ---------------------------------------------------------------------------
 # Storage (100% local - nothing here ever leaves the machine)
@@ -37,8 +32,48 @@ MEMORY_FILE = DATA_DIR / "memory.json"
 REMINDERS_FILE = DATA_DIR / "reminders.json"
 NOTES_FILE = DATA_DIR / "notes.json"
 ORGANIZE_LOG = DATA_DIR / "organize_undo.json"
+AUDIT_LOG = DATA_DIR / "audit.log"
+SETTINGS_FILE = DATA_DIR / "settings.json"
 SCREENSHOT_DIR = _HOME / "Pictures" / "RealAssistant"
 DOWNLOADS_DIR = _HOME / "Downloads"
+
+# ---------------------------------------------------------------------------
+# settings.json - optional overrides you can edit without touching this file.
+# ---------------------------------------------------------------------------
+_DEFAULTS = {
+    "model": "openai/gpt-oss-20b",
+    "temperature": 0.6,
+    "max_tokens": 400,
+    "denied_tools": [],
+}
+
+
+def load_settings():
+    data = dict(_DEFAULTS)
+    try:
+        if SETTINGS_FILE.exists():
+            data.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+    except Exception as e:
+        print(f"[settings] couldn't read settings.json ({e}); using defaults.")
+    return data
+
+
+def ensure_settings_file():
+    """Create a default settings.json on first run so it's easy to find and edit."""
+    if not SETTINGS_FILE.exists():
+        try:
+            SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            SETTINGS_FILE.write_text(json.dumps(_DEFAULTS, indent=2) + "\n", encoding="utf-8")
+        except Exception:
+            pass
+
+
+_SETTINGS = load_settings()
+
+MODEL_NAME = str(_SETTINGS["model"])
+TEMPERATURE = float(_SETTINGS["temperature"])
+MAX_TOKENS = int(_SETTINGS["max_tokens"])
+DENIED_TOOLS = {str(t) for t in _SETTINGS.get("denied_tools", [])}
 
 # ---------------------------------------------------------------------------
 # Persona - this is the soul of the thing. Keep it human.
@@ -66,6 +101,10 @@ How you act:
   version instead?" - never dump an error code.
 - Don't ask permission for harmless things (opening apps, searching, screenshots). Just do it.
 - Don't narrate steps. Do the thing, then say what happened.
+
+Memory:
+- You remember things about the user over time. Use that naturally, the way a friend would.
+  Don't announce that you're "remembering" or "storing" anything.
 """
 
 SUMMARY_PROMPT = """
@@ -74,4 +113,12 @@ Extract only what matters for the future: facts about the user (name, preference
 decisions, things that were done, anything still in progress.
 Ignore small talk and obvious one-offs.
 Write it as a plain, dense paragraph. No lists, no headings, keep it short.
+"""
+
+LEARN_PROMPT = """
+You extract durable facts about the user from a short conversation excerpt.
+Return ONLY a JSON array of short strings (no prose, no markdown).
+Include things worth remembering long-term: their name, preferences, habits, ongoing projects,
+important people, or tools/apps they use. Ignore small talk, one-off requests, and anything
+already in the known list. If there is nothing new worth keeping, return [].
 """

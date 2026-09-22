@@ -36,6 +36,8 @@ your API key, your memory file, your file paths.
 | `fileops.py` | File organising for Downloads, with undo. |
 | `sysactions.py` | Power (shutdown/restart/sleep/lock) and safe Recycle-Bin deletes. |
 | `confirm.py` | Native Windows confirmation dialog for risky actions. |
+| `learn.py` | Quietly mines the chat for durable facts to remember. |
+| `audit.py` | Local log of every action taken. |
 | `main.py` | The loop: context building, tool dispatch, memory compression. |
 | `selftest.py` | Offline checks (no API key needed). |
 | `verify_apps.py` | Lists every app the scanner can find. |
@@ -77,8 +79,12 @@ python main.py
 - **Safe delete** - moves things to the Recycle Bin, never a permanent delete
 - **Web answers** - looks things up and answers in its own words
 - **Streaming replies** - text appears as it's written, instead of all at once
+- **Learns on its own** - quietly picks up durable facts about you from normal chat
+- **Memory you control** - ask what it knows, or tell it to forget
+- **Reads files** - summarise or answer questions about txt/md/code/PDF/docx
+- **Finds files** - by name, or search inside them
+- **Audit log** - see every action it took
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
-- **Remember facts** about you across sessions
 
 ## Safety
 
@@ -120,6 +126,22 @@ Set `danger=True` if the action is destructive; then the assistant will ask you 
 - **An app that won't open:** add its `.exe` path to `CUSTOM_APP_PATHS` in `tools.py`.
 - **Forget everything:** delete `%LOCALAPPDATA%\RealAssistant\memory.json`.
 
+## Settings
+
+A `settings.json` is created on first run at `%LOCALAPPDATA%\RealAssistant\settings.json`. Edit it to
+change the model, reply length, or to disable specific tools:
+
+```json
+{
+  "model": "openai/gpt-oss-20b",
+  "temperature": 0.6,
+  "max_tokens": 400,
+  "denied_tools": []
+}
+```
+
+Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant will refuse to run it.
+
 ## Roadmap
 
 - [x] Text loop, persona, tool calling, app scanner
@@ -127,5 +149,6 @@ Set `danger=True` if the action is destructive; then the assistant will ask you 
 - [x] Web search / open site, screenshot, remember, folders, media/volume, clipboard, system info
 - [x] Reminders, notes, window control, file organising (with undo)
 - [x] System actions with confirmation, safe delete, web answers, streaming replies
+- [x] Auto-learning memory, recall/forget, file reading + search, audit log, settings.json
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
 - [ ] UI (Bring Your Own Key)

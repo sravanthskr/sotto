@@ -132,6 +132,13 @@ def summarize(messages):
     return out.choices[0].message.content.strip()
 
 
+def complete(messages, max_tokens=200, temperature=0.0):
+    """A plain, non-streaming completion that returns just the text."""
+    out = _create(model=MODEL_NAME, messages=messages,
+                  temperature=temperature, max_tokens=max_tokens)
+    return out.choices[0].message.content or ""
+
+
 # ---------------------------------------------------------------------------
 # Message helpers
 # ---------------------------------------------------------------------------

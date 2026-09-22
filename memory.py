@@ -24,6 +24,11 @@ _DEFAULT = {
 }
 
 
+def _blank():
+    """A fresh, independent default (never share mutable objects between instances)."""
+    return {"long_term": [], "summary": "", "updated": None}
+
+
 class Memory:
     def __init__(self, path=None):
         self.path = path or MEMORY_FILE
@@ -31,17 +36,17 @@ class Memory:
 
     # -- disk -------------------------------------------------------------
     def _load(self):
+        data = _blank()
         try:
             if self.path.exists():
                 with open(self.path, "r", encoding="utf-8") as f:
                     raw = json.load(f)
-                merged = dict(_DEFAULT)
-                for k, v in _DEFAULT.items():
-                    merged[k] = raw.get(k, v)
-                return merged
+                data["long_term"] = list(raw.get("long_term", []))
+                data["summary"] = str(raw.get("summary", ""))
+                data["updated"] = raw.get("updated")
         except Exception as e:
             print(f"[memory] couldn't read memory file ({e}); starting fresh.")
-        return dict(_DEFAULT)
+        return data
 
     def _save(self):
         with _LOCK:
@@ -65,6 +70,24 @@ class Memory:
 
     def facts(self):
         return list(self.data["long_term"])
+
+    def remove_fact(self, fact):
+        needle = (fact or "").strip().lower()
+        if not needle:
+            return "Nothing to forget."
+        before = len(self.data["long_term"])
+        self.data["long_term"] = [f for f in self.data["long_term"] if needle not in f.lower()]
+        removed = before - len(self.data["long_term"])
+        if removed:
+            self._save()
+            return f"Forgot {removed} thing(s)."
+        return f"I didn't have anything about '{fact}'."
+
+    def clear(self):
+        count = len(self.data["long_term"])
+        self.data["long_term"] = []
+        self._save()
+        return f"Cleared {count} thing(s) I knew."
 
     # -- rolling summary --------------------------------------------------
     def set_summary(self, text):

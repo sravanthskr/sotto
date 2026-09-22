@@ -12,10 +12,11 @@ from datetime import datetime
 
 from config import (
     MODEL_NAME, SYSTEM_PROMPT, RECENT_TURNS_KEPT, SUMMARIZE_WHEN_TURNS_OVER,
-    MAX_TOOL_ROUNDS,
+    MAX_TOOL_ROUNDS, ensure_settings_file,
 )
 import ai_engine
 import tools
+from learn import FactLearner
 from memory import Memory
 from notes import Notes
 from reminders import ReminderManager
@@ -47,7 +48,7 @@ def build_messages(memory, turns, user_text):
     return msgs
 
 
-def handle_turn(memory, turns, user_text):
+def handle_turn(memory, turns, user_text, learner=None):
     messages = build_messages(memory, turns, user_text)
     group = [{"role": "user", "content": user_text}]
     state = {"speaking": False, "spoke": False, "tool": False}
@@ -110,6 +111,8 @@ def handle_turn(memory, turns, user_text):
 
     turns.append(group)
     _maybe_compress(memory, turns)
+    if learner is not None:
+        learner.learn_async(group, on_new=_announce_learned)
 
 
 def _maybe_compress(memory, turns):
@@ -133,12 +136,18 @@ def _on_reminder(reminder):
     print(f"\n*** Reminder: {reminder['message']} ***\n")
 
 
+def _announce_learned(facts):
+    print(f"\n[memory] learned: {'; '.join(facts)}")
+
+
 def main():
+    ensure_settings_file()
     print(f"Starting up... (model: {MODEL_NAME})")
     tools.build_app_index(verbose=True)
 
     mem = Memory()
     tools.set_memory(mem)
+    learner = FactLearner(mem)
 
     notes = Notes()
     tools.set_notes(notes)
@@ -168,7 +177,7 @@ def main():
             if user_text.lower() in ("exit", "quit"):
                 break
             try:
-                handle_turn(mem, turns, user_text)
+                handle_turn(mem, turns, user_text, learner)
             except Exception as e:
                 print(f"  [error] {e}")
     finally:

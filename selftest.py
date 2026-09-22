@@ -100,6 +100,47 @@ def main():
     danger = [n for n, e in tools.REGISTRY.items() if e["danger"]]
     print(f"  new tools registered; {len(danger)} dangerous tools gated: {sorted(danger)}")
 
+    print("\n== learning & memory tools ==")
+    import learn
+    assert learn.parse_facts('sure: ["likes coffee", "uses PyCharm"]') == ["likes coffee", "uses PyCharm"]
+    assert learn.parse_facts("nothing here") == []
+    with tempfile.TemporaryDirectory() as td:
+        m = Memory(path=Path(td) / "m.json")
+        m.add_fact("likes coffee")
+        m.add_fact("uses PyCharm")
+        removed_msg = m.remove_fact("coffee")
+        assert "Forgot 1" in removed_msg, removed_msg
+        assert m.facts() == ["uses PyCharm"], m.facts()
+        m.clear()
+        assert m.facts() == []
+        print("  parse + remove + clear ok")
+
+    print("\n== audit log ==")
+    import audit
+    with tempfile.TemporaryDirectory() as td:
+        audit.AUDIT_LOG = Path(td) / "audit.log"
+        audit.log("open_application", {"app_name": "Chrome"}, "Opened Chrome.")
+        rows = audit.recent(5)
+        assert rows and rows[0]["tool"] == "open_application"
+        print(f"  writes + reads back ok ({len(rows)} row)")
+
+    print("\n== files: read & search ==")
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "note.txt").write_text("hello voiceStra world")
+        (root / "sub").mkdir()
+        (root / "sub" / "deep_note.txt").write_text("nested content")
+        assert "hello voiceStra world" in tools.read_file(str(root / "note.txt"))
+        assert "note.txt" in tools.find_files("note", root=str(root))
+        assert "deep_note.txt" in tools.find_in_files("nested", root=str(root))
+        print("  read_file, find_files, find_in_files ok")
+
+    print("\n== new tool registry entries ==")
+    for n in ("list_facts", "forget_fact", "read_file", "find_files",
+              "find_in_files", "show_audit"):
+        assert n in tools.REGISTRY, n
+    print("  all present")
+
     print("\nAll offline checks passed.")
 
 

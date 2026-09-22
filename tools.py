@@ -20,10 +20,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
 
+import audit
 import fileops
 import sysactions
 import winctl
-from config import SCREENSHOT_DIR, DOWNLOADS_DIR
+from config import SCREENSHOT_DIR, DOWNLOADS_DIR, DENIED_TOOLS
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -62,18 +63,26 @@ def is_dangerous(name):
 
 
 def run(name, args):
-    """Execute a registered tool safely. Returns a short string result."""
+    """Execute a registered tool safely, respecting settings, and log it."""
     entry = REGISTRY.get(name)
-    if not entry:
-        return f"Error: unknown tool '{name}'."
     if not isinstance(args, dict):
         args = {}
+    if not entry:
+        result = f"Error: unknown tool '{name}'."
+        audit.log(name, args, result)
+        return result
+    if name in DENIED_TOOLS:
+        result = f"Error: '{name}' is disabled in settings."
+        audit.log(name, args, result, danger=entry["danger"])
+        return result
     try:
-        return str(entry["func"](**args))
+        result = str(entry["func"](**args))
     except TypeError as e:
-        return f"Error: bad arguments for {name}: {e}"
+        result = f"Error: bad arguments for {name}: {e}"
     except Exception as e:
-        return f"Error: {name} failed: {e}"
+        result = f"Error: {name} failed: {e}"
+    audit.log(name, args, result, danger=entry["danger"])
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -833,4 +842,164 @@ def look_up(query):
         return f"No results for '{query}'."
     return " || ".join(
         f"{r.get('title', '')}: {r.get('body', '')}".strip() for r in results
+    )
+
+
+# ---------------------------------------------------------------------------
+# Memory (what the assistant knows about the user)
+# ---------------------------------------------------------------------------
+@tool(name="list_facts", description="List everything the assistant remembers about the user.")
+def list_facts():
+    if _MEMORY is None:
+        return "Error: memory isn't available right now."
+    facts = _MEMORY.facts()
+    return "; ".join(facts) if facts else "I don't know anything about you yet."
+
+
+@tool(
+    name="forget_fact",
+    description="Forget something previously remembered about the user.",
+    parameters={"type": "object", "properties": {
+        "fact": {"type": "string", "description": "A word or phrase to forget."}},
+        "required": ["fact"]},
+)
+def forget_fact(fact):
+    if _MEMORY is None:
+        return "Error: memory isn't available right now."
+    return _MEMORY.remove_fact(fact)
+
+
+# ---------------------------------------------------------------------------
+# Files: read & search
+# ---------------------------------------------------------------------------
+_TEXT_EXT = {
+    ".txt", ".md", ".py", ".json", ".csv", ".log", ".ini", ".cfg", ".yaml",
+    ".yml", ".xml", ".html", ".htm", ".js", ".ts", ".css", ".java", ".c",
+    ".cpp", ".cs", ".go", ".rs", ".sh", ".bat", ".ps1", ".sql", ".toml",
+}
+
+_SKIP_DIRS = {"appdata", "node_modules", ".git", "__pycache__", "windows",
+              "$recycle.bin", "program files", "program files (x86)"}
+
+
+@tool(
+    name="read_file",
+    description="Read a file and return its text (txt, md, code, .pdf, .docx).",
+    parameters={"type": "object", "properties": {
+        "path": {"type": "string", "description": "File to read."},
+        "max_chars": {"type": "integer", "description": "Max characters (default 6000)."}},
+        "required": ["path"]},
+)
+def read_file(path, max_chars=6000):
+    p = Path(os.path.expandvars(os.path.expanduser(str(path).strip())))
+    if not p.is_file():
+        return f"Error: there's no file at '{path}'."
+    ext = p.suffix.lower()
+    try:
+        if ext == ".pdf":
+            try:
+                from pypdf import PdfReader
+            except ImportError:
+                return "Error: reading PDFs needs pypdf (run: pip install pypdf)."
+            reader = PdfReader(str(p))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages[:20])
+        elif ext == ".docx":
+            try:
+                import docx
+            except ImportError:
+                return "Error: reading .docx needs python-docx (run: pip install python-docx)."
+            text = "\n".join(par.text for par in docx.Document(str(p)).paragraphs)
+        elif ext in _TEXT_EXT or ext == "":
+            text = p.read_text(encoding="utf-8", errors="replace")
+        else:
+            return f"Error: I can't read '{ext}' files yet."
+    except Exception as e:
+        return f"Error: couldn't read the file ({e})."
+    text = text.strip()
+    if not text:
+        return f"'{p.name}' looks empty."
+    max_chars = int(max_chars or 6000)
+    if len(text) > max_chars:
+        return f"Contents of {p.name}:\n{text[:max_chars]}\n...(truncated)"
+    return f"Contents of {p.name}:\n{text}"
+
+
+@tool(
+    name="find_files",
+    description="Find files by name under a folder (default: your home folder).",
+    parameters={"type": "object", "properties": {
+        "name": {"type": "string", "description": "Part of the file name to match."},
+        "root": {"type": "string", "description": "Folder to search (optional)."},
+        "limit": {"type": "integer"}},
+        "required": ["name"]},
+)
+def find_files(name, root="", limit=25):
+    base = Path(os.path.expandvars(os.path.expanduser(root))) if root else Path.home()
+    if not base.is_dir():
+        return f"Error: there's no folder at '{base}'."
+    needle = str(name).lower()
+    limit = int(limit or 25)
+    hits = []
+    deadline = datetime.now().timestamp() + 15
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if d.lower() not in _SKIP_DIRS]
+        for fn in filenames:
+            if needle in fn.lower():
+                hits.append(str(Path(dirpath) / fn))
+                if len(hits) >= limit:
+                    return "Found:\n" + "\n".join(hits)
+        if datetime.now().timestamp() > deadline:
+            break
+    return ("Found:\n" + "\n".join(hits)) if hits else f"No files matching '{name}' under {base}."
+
+
+@tool(
+    name="find_in_files",
+    description="Search inside text files for a word or phrase.",
+    parameters={"type": "object", "properties": {
+        "text": {"type": "string", "description": "Text to look for."},
+        "root": {"type": "string", "description": "Folder to search (optional)."},
+        "limit": {"type": "integer"}},
+        "required": ["text"]},
+)
+def find_in_files(text, root="", limit=15):
+    base = Path(os.path.expandvars(os.path.expanduser(root))) if root else (Path.home() / "Documents")
+    if not base.is_dir():
+        base = Path.home()
+    needle = str(text).lower()
+    limit = int(limit or 15)
+    hits = []
+    deadline = datetime.now().timestamp() + 15
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d.lower() not in _SKIP_DIRS]
+        for fn in filenames:
+            if Path(fn).suffix.lower() not in _TEXT_EXT:
+                continue
+            try:
+                content = (Path(dirpath) / fn).read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            if needle in content.lower():
+                hits.append(str(Path(dirpath) / fn))
+                if len(hits) >= limit:
+                    return "Matched:\n" + "\n".join(hits)
+        if datetime.now().timestamp() > deadline:
+            break
+    return ("Matched:\n" + "\n".join(hits)) if hits else f"No files containing '{text}'."
+
+
+# ---------------------------------------------------------------------------
+# Audit
+# ---------------------------------------------------------------------------
+@tool(
+    name="show_audit",
+    description="Show a log of the recent actions the assistant took.",
+    parameters={"type": "object", "properties": {"limit": {"type": "integer"}}, "required": []},
+)
+def show_audit(limit=15):
+    rows = audit.recent(int(limit or 15))
+    if not rows:
+        return "Nothing logged yet."
+    return "\n".join(
+        f"{r['ts']}  {r['tool']}  {r['args']} -> {r['result'][:80]}" for r in rows
     )
