@@ -68,11 +68,15 @@ def top_processes(limit=5, by="cpu"):
         except Exception:
             continue
     time.sleep(0.4)                  # let the counters advance
+    ncpu = psutil.cpu_count() or 1    # normalise multi-core totals to 0-100%
     rows = []
     for proc in procs:
         try:
-            rows.append((proc.info.get("name") or "?",
-                         float(proc.cpu_percent(None) or 0.0),
+            name = proc.info.get("name") or "?"
+            if name.lower() in ("system idle process", "idle"):
+                continue
+            rows.append((name,
+                         float(proc.cpu_percent(None) or 0.0) / ncpu,
                          float(proc.memory_percent() or 0.0)))
         except Exception:
             continue
