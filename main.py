@@ -50,12 +50,13 @@ def build_messages(memory, turns, user_text):
 def handle_turn(memory, turns, user_text):
     messages = build_messages(memory, turns, user_text)
     group = [{"role": "user", "content": user_text}]
-    state = {"speaking": False}
+    state = {"speaking": False, "spoke": False, "tool": False}
 
     def on_text(chunk):
         if not state["speaking"]:
             print("AI: ", end="", flush=True)
             state["speaking"] = True
+            state["spoke"] = True
         print(chunk, end="", flush=True)
 
     def end_line():
@@ -74,6 +75,7 @@ def handle_turn(memory, turns, user_text):
             break
 
         for tc in calls:
+            state["tool"] = True
             fn = tc.get("function", {})
             name = fn.get("name", "")
             try:
@@ -101,6 +103,10 @@ def handle_turn(memory, turns, user_text):
         end_line()
         messages.append(mdict)
         group.append(mdict)
+
+    if not state["spoke"]:
+        print("AI: done." if state["tool"]
+              else "AI: hmm, I didn't catch that - say it again?")
 
     turns.append(group)
     _maybe_compress(memory, turns)
