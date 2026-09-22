@@ -12,13 +12,14 @@ from datetime import datetime
 
 from config import (
     MODEL_NAME, SYSTEM_PROMPT, RECENT_TURNS_KEPT, SUMMARIZE_WHEN_TURNS_OVER,
-    MAX_TOOL_ROUNDS, ensure_settings_file,
+    MAX_TOOL_ROUNDS, PROACTIVE, PROACTIVE_INTERVAL, ensure_settings_file,
 )
 import ai_engine
 import tools
 from learn import FactLearner
 from memory import Memory
 from notes import Notes
+from proactive import ProactiveWatcher
 from reminders import ReminderManager
 
 
@@ -136,6 +137,10 @@ def _on_reminder(reminder):
     print(f"\n*** Reminder: {reminder['message']} ***\n")
 
 
+def _on_proactive(message):
+    print(f"\n[proactive] Heads up - {message}.\n")
+
+
 def _announce_learned(facts):
     print(f"\n[memory] learned: {'; '.join(facts)}")
 
@@ -155,6 +160,12 @@ def main():
     reminders = ReminderManager(on_fire=_on_reminder)
     tools.set_reminders(reminders)
     reminders.start()
+
+    watcher = ProactiveWatcher(
+        notify=_on_proactive,
+        config={"enabled": PROACTIVE, "interval_seconds": PROACTIVE_INTERVAL},
+    )
+    watcher.start()
 
     facts = mem.facts()
     if facts:
@@ -182,6 +193,7 @@ def main():
                 print(f"  [error] {e}")
     finally:
         reminders.stop()
+        watcher.stop()
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ import briefing
 import display
 import fileops
 import sysactions
+import sysinfo
 import winctl
 from config import SCREENSHOT_DIR, DOWNLOADS_DIR, DENIED_TOOLS
 
@@ -1080,3 +1081,49 @@ def get_weather(city=""):
 )
 def daily_briefing(city=""):
     return briefing.daily_briefing(city, reminders=_REMINDERS)
+
+
+# ---------------------------------------------------------------------------
+# System awareness
+# ---------------------------------------------------------------------------
+@tool(name="system_status",
+      description="Report system health: CPU, memory, disk, battery, uptime.")
+def system_status():
+    return sysinfo.system_status()
+
+
+@tool(
+    name="top_processes",
+    description="List the processes using the most CPU or memory.",
+    parameters={"type": "object", "properties": {
+        "limit": {"type": "integer"},
+        "by": {"type": "string", "description": "'cpu' or 'memory'."}}, "required": []},
+)
+def top_processes(limit=5, by="cpu"):
+    return sysinfo.top_processes(limit, by)
+
+
+@tool(name="network_check", description="Check internet and DNS connectivity.")
+def network_check():
+    return sysinfo.network_check()
+
+
+@tool(
+    name="list_apps",
+    description="List installed apps, optionally filtered by a search word.",
+    parameters={"type": "object", "properties": {
+        "query": {"type": "string"}, "limit": {"type": "integer"}}, "required": []},
+)
+def list_apps(query="", limit=40):
+    if not APP_INDEX:
+        build_app_index()
+    names = sorted(APP_INDEX)
+    if query:
+        names = [n for n in names if str(query).lower() in n]
+    if not names:
+        return "No matching apps found."
+    limit = int(limit or 40)
+    shown = ", ".join(names[:limit])
+    if len(names) > limit:
+        shown += f" (+{len(names) - limit} more)"
+    return shown

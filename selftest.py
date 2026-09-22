@@ -14,6 +14,8 @@ from pathlib import Path
 import briefing
 import display
 import fileops
+import proactive
+import sysinfo
 import tools
 import winctl
 from memory import Memory
@@ -158,6 +160,28 @@ def main():
     print("\n== registry: display + briefing tools ==")
     for n in ("snap_window", "set_brightness", "get_brightness", "set_volume", "get_volume",
               "get_weather", "daily_briefing"):
+        assert n in tools.REGISTRY, n
+    print("  all present")
+
+    print("\n== system awareness ==")
+    status = sysinfo.system_status()
+    print(" ", status[:150])
+    assert "CPU" in status or "Error" in status, status
+    print("  network:", sysinfo.network_check())
+
+    print("\n== proactive thresholds ==")
+    if proactive.psutil is None:
+        print("  psutil not available - skipped")
+    else:
+        watcher = proactive.ProactiveWatcher(notify=lambda m: None,
+                                             config={"cooldown_seconds": 0})
+        watcher.cfg["low_disk_gb"] = 10 ** 9   # force the disk rule to trigger
+        messages = watcher.check_once()
+        assert any("C:" in m for m in messages), messages
+        print(f"  disk rule works: {messages[0]}")
+
+    print("\n== registry: awareness tools ==")
+    for n in ("system_status", "top_processes", "network_check", "list_apps"):
         assert n in tools.REGISTRY, n
     print("  all present")
 

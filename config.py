@@ -20,7 +20,7 @@ USER_NAME = ""                 # leave blank; it learns this. Set it to force it
 # ---------------------------------------------------------------------------
 RECENT_TURNS_KEPT = 8          # how many recent turns stay verbatim in context
 SUMMARIZE_WHEN_TURNS_OVER = 12 # once we exceed this, the oldest turns get compressed
-MAX_TOOL_ROUNDS = 5            # max tool-call rounds inside a single user turn
+MAX_TOOL_ROUNDS = 8            # max tool-call rounds inside a single user turn (multi-step tasks)
 LEARN_EVERY_N_TURNS = 1        # how often to mine the chat for durable facts (1 = every turn)
 
 # ---------------------------------------------------------------------------
@@ -45,6 +45,8 @@ _DEFAULTS = {
     "temperature": 0.6,
     "max_tokens": 400,
     "denied_tools": [],
+    "proactive": True,
+    "proactive_interval_seconds": 300,
 }
 
 
@@ -74,6 +76,8 @@ MODEL_NAME = str(_SETTINGS["model"])
 TEMPERATURE = float(_SETTINGS["temperature"])
 MAX_TOKENS = int(_SETTINGS["max_tokens"])
 DENIED_TOOLS = {str(t) for t in _SETTINGS.get("denied_tools", [])}
+PROACTIVE = bool(_SETTINGS.get("proactive", True))
+PROACTIVE_INTERVAL = int(_SETTINGS.get("proactive_interval_seconds", 300))
 
 # ---------------------------------------------------------------------------
 # Persona - this is the soul of the thing. Keep it human.
@@ -101,6 +105,8 @@ How you act:
   version instead?" - never dump an error code.
 - Don't ask permission for harmless things (opening apps, searching, screenshots). Just do it.
 - Don't narrate steps. Do the thing, then say what happened.
+- For multi-step requests, plan them out and work through each step, then give one short summary
+  of the result - don't ask the user to break it down for you.
 
 Memory:
 - You remember things about the user over time. Use that naturally, the way a friend would.

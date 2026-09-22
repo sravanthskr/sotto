@@ -40,6 +40,8 @@ your API key, your memory file, your file paths.
 | `audit.py` | Local log of every action taken. |
 | `display.py` | Screen brightness + exact master volume. |
 | `briefing.py` | Weather + daily briefing. |
+| `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
+| `proactive.py` | Conservative background watcher that speaks up when it matters. |
 | `main.py` | The loop: context building, tool dispatch, memory compression. |
 | `selftest.py` | Offline checks (no API key needed). |
 | `verify_apps.py` | Lists every app the scanner can find. |
@@ -89,6 +91,8 @@ python main.py
 - **Window snapping** - left / right / top / bottom / centre / maximise
 - **Brightness** and **exact volume** percentage
 - **Weather** and a **daily briefing** (time, weather, reminders, disk)
+- **System awareness** - CPU/RAM/disk/battery, top processes, network check, list installed apps
+- **Proactive nudges** - quietly warns about low disk space or low battery
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
 
 ## Safety
@@ -156,5 +160,7 @@ Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant wil
 - [x] System actions with confirmation, safe delete, web answers, streaming replies
 - [x] Auto-learning memory, recall/forget, file reading + search, audit log, settings.json
 - [x] Window snapping, brightness, exact volume, weather + daily briefing
+- [x] System awareness, proactive nudges, multi-step planning
+- [ ] Packaging (.exe + autostart) and CI
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
 - [ ] UI (Bring Your Own Key)
