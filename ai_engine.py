@@ -60,6 +60,64 @@ def ask_ai(messages, tools=None):
     return _create(**kwargs).choices[0].message
 
 
+def stream_ai(messages, tools=None, on_text=None):
+    """Like ask_ai, but streams text out as it arrives.
+
+    Calls on_text(chunk) for each content piece, and returns the assembled message
+    as a plain dict (with any tool calls reassembled from their fragments).
+    """
+    kwargs = dict(model=MODEL_NAME, messages=messages, temperature=TEMPERATURE,
+                  max_tokens=MAX_TOKENS, stream=True)
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"
+
+    stream = _create(**kwargs)
+    content_parts = []
+    calls = {}
+    for chunk in stream:
+        choices = getattr(chunk, "choices", None)
+        if not choices:
+            continue
+        delta = choices[0].delta
+
+        text = getattr(delta, "content", None)
+        if text:
+            content_parts.append(text)
+            if on_text:
+                on_text(text)
+
+        for tc in (getattr(delta, "tool_calls", None) or []):
+            idx = getattr(tc, "index", None)
+            if idx is None:
+                idx = 0
+            slot = calls.setdefault(idx, {"id": None, "name": "", "arguments": ""})
+            if getattr(tc, "id", None):
+                slot["id"] = tc.id
+            fn = getattr(tc, "function", None)
+            if fn is not None:
+                if getattr(fn, "name", None):
+                    slot["name"] += fn.name
+                if getattr(fn, "arguments", None):
+                    slot["arguments"] += fn.arguments
+
+    result = {"role": "assistant"}
+    content = "".join(content_parts)
+    if content:
+        result["content"] = content
+    if calls:
+        result["tool_calls"] = [
+            {
+                "id": calls[i]["id"] or f"call_{i}",
+                "type": "function",
+                "function": {"name": calls[i]["name"],
+                             "arguments": calls[i]["arguments"] or "{}"},
+            }
+            for i in sorted(calls)
+        ]
+    return result
+
+
 def summarize(messages):
     """Compress a chunk of conversation into a short paragraph."""
     out = _create(

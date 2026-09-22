@@ -34,6 +34,8 @@ your API key, your memory file, your file paths.
 | `notes.py` | Quick local notes (`notes.json`). |
 | `winctl.py` | Window control (list / focus / minimise / maximise) via Win32. |
 | `fileops.py` | File organising for Downloads, with undo. |
+| `sysactions.py` | Power (shutdown/restart/sleep/lock) and safe Recycle-Bin deletes. |
+| `confirm.py` | Native Windows confirmation dialog for risky actions. |
 | `main.py` | The loop: context building, tool dispatch, memory compression. |
 | `selftest.py` | Offline checks (no API key needed). |
 | `verify_apps.py` | Lists every app the scanner can find. |
@@ -71,8 +73,21 @@ python main.py
 - **Notes** you can add, list, and search
 - **Window control** - list open windows and focus / minimise / maximise one
 - **File organising** - sort Downloads into folders by type, with undo
+- **System actions** - shutdown / restart (with Windows' own countdown + cancel), sleep, lock
+- **Safe delete** - moves things to the Recycle Bin, never a permanent delete
+- **Web answers** - looks things up and answers in its own words
+- **Streaming replies** - text appears as it's written, instead of all at once
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
 - **Remember facts** about you across sessions
+
+## Safety
+
+- The cloud model can only ever *ask for* a named tool - it never runs anything itself.
+- Actions that change or remove things (shutdown, restart, sleep, lock, delete, closing apps,
+  moving files) pop up a **native confirmation dialog** first. Nothing runs until you approve.
+- Shutdown/restart use Windows' own delayed shutdown, so you also get the OS countdown and can
+  abort it with "cancel shutdown".
+- Deletes go to the **Recycle Bin**, not a permanent delete.
 
 ## How to extend it (adding a new tool)
 
@@ -111,7 +126,6 @@ Set `danger=True` if the action is destructive; then the assistant will ask you 
 - [x] Persistent memory, hardened app discovery, multi-tool chaining, graceful errors
 - [x] Web search / open site, screenshot, remember, folders, media/volume, clipboard, system info
 - [x] Reminders, notes, window control, file organising (with undo)
-- [ ] More tools: system actions (lock/sleep/shutdown), reading web results as text
-- [ ] Streaming replies so it feels live
+- [x] System actions with confirmation, safe delete, web answers, streaming replies
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
 - [ ] UI (Bring Your Own Key)

@@ -89,6 +89,17 @@ def main():
         assert (root / "a.txt").exists() and (root / "b.jpg").exists()
         print(f"  {back}")
 
+    print("\n== safety & new tools ==")
+    for n in ("shutdown_pc", "restart_pc", "cancel_shutdown", "sleep_pc", "lock_pc",
+              "delete_path", "look_up"):
+        assert n in tools.REGISTRY, n
+    assert tools.is_dangerous("shutdown_pc") and tools.is_dangerous("delete_path")
+    assert not tools.is_dangerous("cancel_shutdown")
+    import confirm    # noqa: F401  (confirmation dialog module loads)
+    import sysactions  # noqa: F401
+    danger = [n for n, e in tools.REGISTRY.items() if e["danger"]]
+    print(f"  new tools registered; {len(danger)} dangerous tools gated: {sorted(danger)}")
+
     print("\nAll offline checks passed.")
 
 

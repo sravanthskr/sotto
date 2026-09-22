@@ -34,21 +34,25 @@ def build_messages(memory, turns, user_text):
     return msgs
 
 
-def _confirm(name, args):
-    try:
-        ans = input(f"  [about to {name} with {args} - do it? y/n]: ").strip().lower()
-    except EOFError:
-        return False
-    return ans in ("y", "yes")
-
-
 def handle_turn(memory, turns, user_text):
     messages = build_messages(memory, turns, user_text)
     group = [{"role": "user", "content": user_text}]
+    state = {"speaking": False}
+
+    def on_text(chunk):
+        if not state["speaking"]:
+            print("AI: ", end="", flush=True)
+            state["speaking"] = True
+        print(chunk, end="", flush=True)
+
+    def end_line():
+        if state["speaking"]:
+            print()
+            state["speaking"] = False
 
     for _round in range(MAX_TOOL_ROUNDS):
-        msg = ai_engine.ask_ai(messages, tools=tools.schemas())
-        mdict = ai_engine.message_to_dict(msg)
+        mdict = ai_engine.stream_ai(messages, tools=tools.schemas(), on_text=on_text)
+        end_line()
         messages.append(mdict)
         group.append(mdict)
 
@@ -64,8 +68,8 @@ def handle_turn(memory, turns, user_text):
             except json.JSONDecodeError:
                 args = {}
 
-            if tools.is_dangerous(name) and not _confirm(name, args):
-                result = "Cancelled by the user."
+            if tools.is_dangerous(name):
+                result = tools.run_confirmed(name, args)
             else:
                 result = tools.run(name, args)
 
@@ -80,15 +84,10 @@ def handle_turn(memory, turns, user_text):
             group.append(tool_msg)
     else:
         # Hit the round cap while still wanting tools - get one final spoken line.
-        final = ai_engine.ask_ai(messages, tools=None)
-        mdict = ai_engine.message_to_dict(final)
+        mdict = ai_engine.stream_ai(messages, tools=None, on_text=on_text)
+        end_line()
         messages.append(mdict)
         group.append(mdict)
-
-    for m in reversed(group):
-        if m.get("role") == "assistant" and m.get("content"):
-            print("AI:", m["content"].strip())
-            break
 
     turns.append(group)
     _maybe_compress(memory, turns)

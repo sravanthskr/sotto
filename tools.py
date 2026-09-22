@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 import fileops
+import sysactions
 import winctl
 from config import SCREENSHOT_DIR, DOWNLOADS_DIR
 
@@ -717,3 +718,119 @@ def organize_downloads():
 )
 def undo_organize():
     return fileops.undo_organize()
+
+
+# ---------------------------------------------------------------------------
+# Confirmation for risky actions
+# ---------------------------------------------------------------------------
+_DANGER_LABELS = {
+    "close_application": lambda a: f"Close '{a.get('app_name')}'?",
+    "organize_downloads": lambda a: "Move the loose files in Downloads into category folders?",
+    "undo_organize": lambda a: "Move the organised files back where they were?",
+    "shutdown_pc": lambda a: f"Shut down the PC in {a.get('delay_seconds', 60)} seconds?",
+    "restart_pc": lambda a: f"Restart the PC in {a.get('delay_seconds', 60)} seconds?",
+    "sleep_pc": lambda a: "Put the PC to sleep?",
+    "lock_pc": lambda a: "Lock the PC?",
+    "delete_path": lambda a: f"Move '{a.get('path')}' to the Recycle Bin?",
+}
+
+
+def run_confirmed(name, args):
+    """Ask the user (native dialog) before running a dangerous tool, then run it."""
+    from confirm import ask
+    if not isinstance(args, dict):
+        args = {}
+    label = _DANGER_LABELS.get(name)
+    question = label(args) if label else f"Run '{name}'?"
+    if not ask(question, "This can't be undone from here, so make sure it's what you want."):
+        return "Cancelled by the user."
+    return run(name, args)
+
+
+# ---------------------------------------------------------------------------
+# System actions (power, lock, safe delete)
+# ---------------------------------------------------------------------------
+@tool(
+    name="shutdown_pc",
+    description=("Shut the computer down after a short delay. Windows shows its own "
+                 "countdown, and it can be cancelled."),
+    parameters={"type": "object", "properties": {
+        "delay_seconds": {"type": "integer",
+                          "description": "Seconds before shutdown (default 60, min 10)."}},
+        "required": []},
+    danger=True,
+)
+def shutdown_pc(delay_seconds=60):
+    return sysactions.shutdown(delay_seconds)
+
+
+@tool(
+    name="restart_pc",
+    description="Restart the computer after a short delay. Can be cancelled.",
+    parameters={"type": "object", "properties": {
+        "delay_seconds": {"type": "integer",
+                          "description": "Seconds before restart (default 60, min 10)."}},
+        "required": []},
+    danger=True,
+)
+def restart_pc(delay_seconds=60):
+    return sysactions.restart(delay_seconds)
+
+
+@tool(name="cancel_shutdown", description="Cancel a pending shutdown or restart.")
+def cancel_shutdown():
+    return sysactions.cancel_shutdown()
+
+
+@tool(name="sleep_pc", description="Put the computer to sleep.", danger=True)
+def sleep_pc():
+    return sysactions.sleep()
+
+
+@tool(name="lock_pc", description="Lock the computer.", danger=True)
+def lock_pc():
+    return sysactions.lock()
+
+
+@tool(
+    name="delete_path",
+    description=("Move a file or folder to the Recycle Bin (recoverable - not a permanent "
+                 "delete)."),
+    parameters={"type": "object", "properties": {
+        "path": {"type": "string", "description": "File or folder to remove."}},
+        "required": ["path"]},
+    danger=True,
+)
+def delete_path(path):
+    return sysactions.delete_to_recycle_bin(path)
+
+
+# ---------------------------------------------------------------------------
+# Web answers
+# ---------------------------------------------------------------------------
+@tool(
+    name="look_up",
+    description=("Search the web and read back a short summary of the top results. Use this "
+                 "to answer questions that need current information."),
+    parameters={"type": "object", "properties": {
+        "query": {"type": "string", "description": "What to look up."}},
+        "required": ["query"]},
+)
+def look_up(query):
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            return "Error: the search library isn't installed (run: pip install ddgs)."
+    try:
+        with DDGS() as d:
+            results = list(d.text(query, max_results=4))
+    except Exception as e:
+        return f"Error: the web search failed ({e})."
+    if not results:
+        return f"No results for '{query}'."
+    return " || ".join(
+        f"{r.get('title', '')}: {r.get('body', '')}".strip() for r in results
+    )
