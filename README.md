@@ -55,9 +55,14 @@ python main.py
 ## What it can do right now
 
 - **Open apps** (Start Menu + Desktop + Public Desktop + Taskbar + Registry, with ranked
-  matching so "chrome" doesn't open "Chrome Remote Desktop")
+  matching so "chrome" doesn't open "Chrome Remote Desktop"), launched **detached** so an
+  app's own console output never leaks into the chat
 - **Close apps** (asks for confirmation first)
 - **Open websites** and **search the web**
+- **Open folders** and **create folders**
+- **Media & volume control** (play/pause, next, previous, mute, volume up/down)
+- **Clipboard** read and write
+- **System info** (time, free disk space, battery)
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
 - **Remember facts** about you across sessions
 
@@ -96,7 +101,7 @@ Set `danger=True` if the action is destructive; then the assistant will ask you 
 
 - [x] Text loop, persona, tool calling, app scanner
 - [x] Persistent memory, hardened app discovery, multi-tool chaining, graceful errors
-- [x] Web search / open site, screenshot, remember
-- [ ] More tools: file organising, volume/media, clipboard, timers, system info
+- [x] Web search / open site, screenshot, remember, folders, media/volume, clipboard, system info
+- [ ] More tools: file organising, timers/reminders, window control, notes
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
 - [ ] UI (Bring Your Own Key)

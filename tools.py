@@ -9,6 +9,7 @@ Security model: the cloud model NEVER runs anything itself. It can only ask for 
 these named tools with JSON arguments. Everything is validated and executed locally.
 """
 
+import ctypes
 import os
 import re
 import shutil
@@ -217,16 +218,36 @@ def resolve_app(query):
     return None
 
 
+# Windows process-creation flags
+_DETACHED_PROCESS = 0x00000008
+_CREATE_NEW_PROCESS_GROUP = 0x00000200
+_CREATE_NO_WINDOW = 0x08000000
+
+
 def _launch(target):
+    """Launch something *detached*, so it can't hijack the assistant's console.
+
+    Some apps (e.g. ampcast) dump their own stdout into whatever console launched
+    them. We hand them no handles and detach, so the chat window stays clean.
+    """
+    target = str(target)
+    flags = _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
     try:
-        os.startfile(target)
+        subprocess.Popen(
+            ["cmd", "/c", "start", "", target],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True,
+        )
         return True, ""
-    except Exception as e1:
+    except Exception as e:
         try:
-            subprocess.Popen(f'start "" "{target}"', shell=True)
+            os.startfile(target)
             return True, ""
         except Exception:
-            return False, str(e1)
+            return False, str(e)
 
 
 # ---------------------------------------------------------------------------
@@ -346,3 +367,142 @@ def remember(fact):
     if _MEMORY is None:
         return "Error: memory isn't available right now."
     return _MEMORY.add_fact(fact)
+
+
+# ---------------------------------------------------------------------------
+# Folders, system info, media keys, clipboard
+# ---------------------------------------------------------------------------
+@tool(
+    name="open_folder",
+    description="Open a folder in File Explorer. Defaults to the user's home folder.",
+    parameters={
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "Folder path (optional)."}},
+        "required": [],
+    },
+)
+def open_folder(path=""):
+    raw = (path or "").strip() or str(Path.home())
+    p = Path(os.path.expandvars(os.path.expanduser(raw)))
+    if not p.exists():
+        return f"Error: there's no folder at '{raw}'."
+    try:
+        os.startfile(str(p))
+        return f"Opened {p}."
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool(
+    name="create_folder",
+    description="Create a new folder at a given path.",
+    parameters={
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "Full path to create."}},
+        "required": ["path"],
+    },
+)
+def create_folder(path):
+    p = Path(os.path.expandvars(os.path.expanduser(str(path).strip())))
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        return f"Created {p}."
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool(
+    name="get_system_info",
+    description="Quick system info: current time, free disk space, and battery level.",
+)
+def get_system_info():
+    bits = [f"Time: {datetime.now():%Y-%m-%d %H:%M}"]
+    try:
+        total, used, free = shutil.disk_usage("C:\\")
+        gb = 1024 ** 3
+        bits.append(f"Disk C: {free / gb:.1f} GB free of {total / gb:.1f} GB")
+    except Exception:
+        pass
+    try:
+        class _POWER(ctypes.Structure):
+            _fields_ = [("ACLineStatus", ctypes.c_byte),
+                        ("BatteryFlag", ctypes.c_byte),
+                        ("BatteryLifePercent", ctypes.c_byte),
+                        ("SystemStatusFlag", ctypes.c_byte),
+                        ("BatteryLifeTime", ctypes.c_ulong),
+                        ("BatteryFullLifeTime", ctypes.c_ulong)]
+        st = _POWER()
+        if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(st)):
+            pct = st.BatteryLifePercent
+            if 0 <= pct <= 100:
+                bits.append(f"Battery: {pct}%")
+    except Exception:
+        pass
+    return ". ".join(bits) + "."
+
+
+# virtual-key codes for the media/volume keys
+_MEDIA_KEYS = {
+    "play pause": 0xB3, "play": 0xB3, "pause": 0xB3, "toggle": 0xB3,
+    "next": 0xB0, "skip": 0xB0,
+    "previous": 0xB1, "prev": 0xB1, "back": 0xB1,
+    "stop": 0xB2,
+    "mute": 0xAD, "unmute": 0xAD,
+    "volume up": 0xAF, "louder": 0xAF,
+    "volume down": 0xAE, "quieter": 0xAE,
+}
+
+
+@tool(
+    name="control_media",
+    description=("Control music/video and volume. action is one of: play_pause, next, "
+                 "previous, stop, mute, volume_up, volume_down."),
+    parameters={
+        "type": "object",
+        "properties": {"action": {"type": "string", "description": "The media action to perform."}},
+        "required": ["action"],
+    },
+)
+def control_media(action):
+    key = _MEDIA_KEYS.get(_normalize(action))
+    if key is None:
+        return f"Error: don't know how to '{action}'."
+    try:
+        ctypes.windll.user32.keybd_event(key, 0, 0, 0)
+        ctypes.windll.user32.keybd_event(key, 0, 2, 0)  # 2 = key-up
+        return f"Done: {action}."
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool(name="read_clipboard", description="Read the current clipboard text.")
+def read_clipboard():
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
+                           capture_output=True, text=True, creationflags=_CREATE_NO_WINDOW)
+    except Exception as e:
+        return f"Error: {e}"
+    if r.returncode != 0:
+        return "Error: couldn't read the clipboard."
+    text = (r.stdout or "").strip()
+    return text[:2000] if text else "(the clipboard is empty)"
+
+
+@tool(
+    name="write_clipboard",
+    description="Copy the given text to the clipboard.",
+    parameters={
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "Text to copy."}},
+        "required": ["text"],
+    },
+)
+def write_clipboard(text):
+    cmd = "$in = [Console]::In.ReadToEnd(); Set-Clipboard -Value $in"
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd],
+                           input=str(text), capture_output=True, text=True,
+                           creationflags=_CREATE_NO_WINDOW)
+    except Exception as e:
+        return f"Error: {e}"
+    return "Copied to the clipboard." if r.returncode == 0 else "Error: couldn't copy."
