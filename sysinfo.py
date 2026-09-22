@@ -5,6 +5,7 @@ Uses psutil when available; every function degrades gracefully if it isn't.
 """
 
 import socket
+import time
 from datetime import datetime
 
 try:
@@ -59,21 +60,26 @@ def top_processes(limit=5, by="cpu"):
     if psutil is None:
         return "Error: psutil isn't installed (run: pip install psutil)."
     limit = int(limit or 5)
-    try:
-        psutil.cpu_percent(interval=0.4)   # prime cpu counters
-    except Exception:
-        pass
-    rows = []
-    for proc in psutil.process_iter(["name", "cpu_percent", "memory_percent"]):
+    procs = []
+    for proc in psutil.process_iter(["name"]):
         try:
-            info = proc.info
-            rows.append((info.get("name") or "?",
-                         float(info.get("cpu_percent") or 0.0),
-                         float(info.get("memory_percent") or 0.0)))
+            proc.cpu_percent(None)   # prime the per-process counter
+            procs.append(proc)
+        except Exception:
+            continue
+    time.sleep(0.4)                  # let the counters advance
+    rows = []
+    for proc in procs:
+        try:
+            rows.append((proc.info.get("name") or "?",
+                         float(proc.cpu_percent(None) or 0.0),
+                         float(proc.memory_percent() or 0.0)))
         except Exception:
             continue
     idx = 2 if str(by).lower().startswith("mem") else 1
     rows.sort(key=lambda t: t[idx], reverse=True)
+    named = [r for r in rows if r[0] != "?"]
+    rows = named or rows
     if not rows:
         return "Couldn't read the process list."
     return "; ".join(f"{n} ({c:.0f}% cpu, {m:.1f}% mem)" for n, c, m in rows[:limit])
