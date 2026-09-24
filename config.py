@@ -49,6 +49,8 @@ _DEFAULTS = {
     "proactive": True,
     "proactive_interval_seconds": 300,
     "confirm_mode": "dialog",     # "dialog" (native box) or "chat" (answer by voice/text)
+    "voice_name": "",             # "" = system default; or e.g. "Microsoft Zira Desktop"
+    "voice_rate": 0,              # -10..10 (0 = normal speed)
 }
 
 
@@ -82,6 +84,20 @@ PROACTIVE = bool(_SETTINGS.get("proactive", True))
 PROACTIVE_INTERVAL = int(_SETTINGS.get("proactive_interval_seconds", 300))
 CONFIRM_MODE = str(_SETTINGS.get("confirm_mode", "dialog"))
 REASONING_EFFORT = str(_SETTINGS.get("reasoning_effort", "low"))
+VOICE_NAME = str(_SETTINGS.get("voice_name", ""))
+VOICE_RATE = int(_SETTINGS.get("voice_rate", 0))
+
+
+def save_setting(key, value):
+    """Persist a single settings.json value (takes effect after a restart)."""
+    data = load_settings()
+    data[key] = value
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return True
+    except Exception:
+        return False
 
 # ---------------------------------------------------------------------------
 # Dependency check (so a wrong interpreter gives a clear message, not weird errors)

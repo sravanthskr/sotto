@@ -245,6 +245,7 @@ def main():
     print("\n== voice (offline; plays no sound) ==")
     voices = voice.list_voices()
     print(f"  installed voices: {len(voices)}" + (f" -> {voices[:3]}" if voices else ""))
+    print(f"  current voice: {voice.default_voice() or '(system default)'}")
     recognisers = voice.list_recognizers()
     print(f"  recognisers: {len(recognisers)}"
           + (f" -> {recognisers[:2]}" if recognisers else ""))
@@ -254,6 +255,8 @@ def main():
         size = wav.stat().st_size if wav.exists() else 0
         print(f"  text-to-speech -> wav ok={ok} bytes={size}")
         assert ok and size > 1000, (ok, size)
+    for n in ("list_voices", "say", "set_voice"):
+        assert n in tools.REGISTRY, n
 
     print("\nAll offline checks passed.")
 

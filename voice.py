@@ -12,6 +12,8 @@ Everything here is plain PowerShell + the .NET speech assemblies that ship with 
 
 import subprocess
 
+from config import VOICE_NAME, VOICE_RATE
+
 _PS = ["powershell", "-NoProfile", "-Command"]
 _NO_WINDOW = 0x08000000
 _TIMEOUT = 60
@@ -44,11 +46,18 @@ def list_recognizers():
     return [line.strip() for line in (r.stdout or "").splitlines() if line.strip()]
 
 
-def speak(text, voice=None, rate=0):
+def default_voice():
+    """The configured voice, or '' meaning the system default."""
+    return VOICE_NAME or ""
+
+
+def speak(text, voice=None, rate=None):
     """Say something out loud with the PC's own voices. Returns True on success."""
     text = (text or "").strip()
     if not text:
         return False
+    voice = voice if voice is not None else (VOICE_NAME or None)
+    rate = VOICE_RATE if rate is None else rate
     select = f"$s.SelectVoice('{_q(voice)}'); " if voice else ""
     script = ("Add-Type -AssemblyName System.Speech; "
               "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
@@ -56,11 +65,13 @@ def speak(text, voice=None, rate=0):
     return _run(script).returncode == 0
 
 
-def speak_to_wav(text, path, voice=None, rate=0):
+def speak_to_wav(text, path, voice=None, rate=None):
     """Render speech to a .wav file (handy for testing without making noise)."""
     text = (text or "").strip()
     if not text:
         return False
+    voice = voice if voice is not None else (VOICE_NAME or None)
+    rate = VOICE_RATE if rate is None else rate
     select = f"$s.SelectVoice('{_q(voice)}'); " if voice else ""
     script = ("Add-Type -AssemblyName System.Speech; "
               "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "

@@ -128,6 +128,34 @@ python voice_main.py        # or:  .\run.bat voice
 Your own **custom voice sample** is the next step: render to audio, then convert it locally
 with a small voice-conversion model (CPU only - no GPU, no API).
 
+### Choosing a voice
+
+Any user can pick their own voice. Set it in `settings.json`:
+
+```json
+{ "voice_name": "Microsoft Zira Desktop", "voice_rate": 0 }
+```
+
+...or just ask: *"list your voices"*, *"use the Zira voice"*. An empty `voice_name` means the
+system default.
+
+### Custom voice (your own sample, or a favourite actor's)
+
+The pipeline to go beyond the built-in voices is:
+
+```
+reply text  ->  Windows TTS (any voice)  ->  local voice conversion  ->  your target voice
+```
+
+The conversion step is a small **RVC-style** model, trained once from a clean sample of the
+target voice. After that it runs **locally on CPU** (no GPU, no API). Training is the heavy
+part - a one-time job that can be done on a free cloud GPU; the resulting model is then yours
+to run offline.
+
+_Note: cloning a real person's voice is fine for your own personal offline use. Sharing that
+model, or using it to impersonate someone publicly, is where it stops being okay - keep it
+personal._
+
 ## Safety
 
 - The cloud model can only ever *ask for* a named tool - it never runs anything itself.
@@ -227,6 +255,7 @@ Once active, it runs the offline self-test on every push and pull request on a W
 - [x] Packaging script (.exe) and CI self-test
 - [x] Core/UI split, move/copy/rename, Chrome profiles, web reading, verbal confirmations
 - [x] Offline voice front-end (Windows speech engine: TTS + recognition, no API)
-- [ ] Custom voice from your own sample (local voice conversion, CPU)
+- [x] Voice selection (installed voices + system default) and offline TTS/STT
+- [ ] Custom voice (RVC-style local conversion from a sample)
 - [ ] Deeper browser control (Playwright) and a desktop UI
 - [ ] Desktop UI (options: PySide6 / pywebview / Flet - see below)

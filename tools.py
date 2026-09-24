@@ -27,6 +27,7 @@ import display
 import fileops
 import sysactions
 import sysinfo
+import voice
 import winctl
 from config import SCREENSHOT_DIR, DOWNLOADS_DIR, DENIED_TOOLS
 
@@ -1264,3 +1265,45 @@ def open_chrome_profile(name):
 )
 def read_webpage(url, max_chars=4000):
     return briefing.read_webpage(url, max_chars)
+
+
+# ---------------------------------------------------------------------------
+# Speaking (offline, Windows voices)
+# ---------------------------------------------------------------------------
+@tool(name="list_voices", description="List the speech voices available on this PC.")
+def list_voices():
+    voices = voice.list_voices()
+    if not voices:
+        return "No speech voices found."
+    current = voice.default_voice() or "(system default)"
+    return f"Current: {current}. Available: " + ", ".join(voices)
+
+
+@tool(
+    name="say",
+    description="Speak the given text out loud (offline).",
+    parameters={"type": "object", "properties": {"text": {"type": "string"}},
+                "required": ["text"]},
+)
+def say(text):
+    return "Said it." if voice.speak(text) else "Error: couldn't speak that."
+
+
+@tool(
+    name="set_voice",
+    description="Choose which voice the assistant speaks with.",
+    parameters={"type": "object", "properties": {
+        "name": {"type": "string", "description": "Voice name, or part of it."}},
+        "required": ["name"]},
+)
+def set_voice(name):
+    available = voice.list_voices()
+    q = (name or "").lower().strip()
+    match = (next((v for v in available if q == v.lower()), None)
+             or next((v for v in available if q in v.lower()), None))
+    if not match:
+        return f"No voice matching '{name}'. Available: {', '.join(available)}"
+    from config import save_setting
+    if save_setting("voice_name", match):
+        return f"Voice set to '{match}' (restart to take effect)."
+    return "Error: couldn't save the setting."
