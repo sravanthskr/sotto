@@ -29,6 +29,7 @@ your API key, your memory file, your file paths.
 | `config.py` | Model name, memory settings, and the assistant's **persona**. Tune the personality here. |
 | `ai_engine.py` | Groq client, retries, message helpers, summarisation. |
 | `tools.py` | The **hands**: tool registry + app discovery + every capability. |
+| `core.py` | The **engine** (`Assistant`) - any front-end drives this. |
 | `memory.py` | Persistent local memory (`%LOCALAPPDATA%\RealAssistant\memory.json`). |
 | `reminders.py` | Timers/reminders with a background thread; survive restarts. |
 | `notes.py` | Quick local notes (`notes.json`). |
@@ -42,7 +43,10 @@ your API key, your memory file, your file paths.
 | `briefing.py` | Weather + daily briefing. |
 | `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
 | `proactive.py` | Conservative background watcher that speaks up when it matters. |
-| `main.py` | The loop: context building, tool dispatch, memory compression. |
+| `main.py` | The console front-end (typing + printing). |
+| `run.bat` | Double-click launcher. |
+| `test_e2e.py` | Scripted end-to-end test (uses the API). |
+| `TESTING.md` | The manual testing checklist. |
 | `selftest.py` | Offline checks (no API key needed). |
 | `verify_apps.py` | Lists every app the scanner can find. |
 

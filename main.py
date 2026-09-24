@@ -1,26 +1,15 @@
 """
-main.py - the manager.
+main.py - the console front-end.
 
-Runs the loop, builds the context (system prompt + memory + recent turns), dispatches
-tool calls, and keeps the rolling memory tidy. Never orphans tool messages, never
-crashes the loop on a bad tool call.
+All the intelligence lives in core.Assistant; this file only handles the terminal
+(typing, and printing what the assistant says and does).
 """
 
-import json
 import sys
-from datetime import datetime
 
-from config import (
-    MODEL_NAME, SYSTEM_PROMPT, RECENT_TURNS_KEPT, SUMMARIZE_WHEN_TURNS_OVER,
-    MAX_TOOL_ROUNDS, PROACTIVE, PROACTIVE_INTERVAL, ensure_settings_file,
-)
-import ai_engine
+from config import MODEL_NAME, ensure_settings_file
 import tools
-from learn import FactLearner
-from memory import Memory
-from notes import Notes
-from proactive import ProactiveWatcher
-from reminders import ReminderManager
+from core import Assistant
 
 
 def _setup_console():
@@ -35,23 +24,10 @@ def _setup_console():
 _setup_console()
 
 
-def build_messages(memory, turns, user_text):
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
-    now = datetime.now()
-    msgs.append({"role": "system",
-                 "content": f"Current date and time: {now:%A %d %B %Y, %H:%M}."})
-    ctx = memory.context_block()
-    if ctx:
-        msgs.append({"role": "system", "content": ctx})
-    for group in turns[-RECENT_TURNS_KEPT:]:
-        msgs.extend(group)
-    msgs.append({"role": "user", "content": user_text})
-    return msgs
+def main():
+    ensure_settings_file()
+    print(f"Starting up... (model: {MODEL_NAME})")
 
-
-def handle_turn(memory, turns, user_text, learner=None):
-    messages = build_messages(memory, turns, user_text)
-    group = [{"role": "user", "content": user_text}]
     state = {"speaking": False, "spoke": False, "tool": False}
 
     def on_text(chunk):
@@ -61,121 +37,33 @@ def handle_turn(memory, turns, user_text, learner=None):
             state["spoke"] = True
         print(chunk, end="", flush=True)
 
-    def end_line():
+    def on_tool(name, args, result):
         if state["speaking"]:
             print()
             state["speaking"] = False
+        state["tool"] = True
+        print(f"  [{name} -> {result}]")
 
-    for _round in range(MAX_TOOL_ROUNDS):
-        mdict = ai_engine.stream_ai(messages, tools=tools.schemas(), on_text=on_text)
-        end_line()
-        messages.append(mdict)
-        group.append(mdict)
+    def on_reminder(message):
+        print(f"\n*** Reminder: {message} ***\n")
 
-        calls = mdict.get("tool_calls")
-        if not calls:
-            break
+    def on_proactive(message):
+        print(f"\n[proactive] Heads up - {message}.\n")
 
-        for tc in calls:
-            state["tool"] = True
-            fn = tc.get("function", {})
-            name = fn.get("name", "")
-            try:
-                args = json.loads(fn.get("arguments") or "{}")
-            except json.JSONDecodeError:
-                args = {}
+    def on_learned(facts):
+        print(f"\n[memory] learned: {'; '.join(facts)}")
 
-            if tools.is_dangerous(name):
-                result = tools.run_confirmed(name, args)
-            else:
-                result = tools.run(name, args)
+    assistant = Assistant(on_text=on_text, on_tool=on_tool, on_reminder=on_reminder,
+                          on_proactive=on_proactive, on_learned=on_learned)
+    assistant.start()
 
-            print(f"  [{name} -> {result}]")
-            tool_msg = {
-                "role": "tool",
-                "tool_call_id": tc.get("id"),
-                "name": name,
-                "content": result,
-            }
-            messages.append(tool_msg)
-            group.append(tool_msg)
-    else:
-        # Hit the round cap while still wanting tools - get one final spoken line.
-        mdict = ai_engine.stream_ai(messages, tools=None, on_text=on_text)
-        end_line()
-        messages.append(mdict)
-        group.append(mdict)
-
-    if not state["spoke"]:
-        print("AI: done." if state["tool"]
-              else "AI: hmm, I didn't catch that - say it again?")
-
-    turns.append(group)
-    _maybe_compress(memory, turns)
-    if learner is not None:
-        learner.learn_async(group, on_new=_announce_learned)
-
-
-def _maybe_compress(memory, turns):
-    """Compress old turns into the rolling summary, but only drop them on success."""
-    if len(turns) <= SUMMARIZE_WHEN_TURNS_OVER:
-        return
-    old, recent = turns[:-RECENT_TURNS_KEPT], turns[-RECENT_TURNS_KEPT:]
-    flat = [m for group in old for m in group]
-    try:
-        fresh = ai_engine.summarize(flat)
-    except Exception as e:
-        print(f"  [memory: compression skipped ({e})]")
-        return
-    combined = (memory.summary() + " " + fresh).strip()
-    memory.set_summary(combined)
-    turns[:] = recent
-    print("  [memory: compressed older turns]")
-
-
-def _on_reminder(reminder):
-    print(f"\n*** Reminder: {reminder['message']} ***\n")
-
-
-def _on_proactive(message):
-    print(f"\n[proactive] Heads up - {message}.\n")
-
-
-def _announce_learned(facts):
-    print(f"\n[memory] learned: {'; '.join(facts)}")
-
-
-def main():
-    ensure_settings_file()
-    print(f"Starting up... (model: {MODEL_NAME})")
-    tools.build_app_index(verbose=True)
-
-    mem = Memory()
-    tools.set_memory(mem)
-    learner = FactLearner(mem)
-
-    notes = Notes()
-    tools.set_notes(notes)
-
-    reminders = ReminderManager(on_fire=_on_reminder)
-    tools.set_reminders(reminders)
-    reminders.start()
-
-    watcher = ProactiveWatcher(
-        notify=_on_proactive,
-        config={"enabled": PROACTIVE, "interval_seconds": PROACTIVE_INTERVAL},
-    )
-    watcher.start()
-
-    facts = mem.facts()
-    if facts:
-        print(f"[memory] remembered {len(facts)} thing(s) about you.")
-    pending = reminders.pending_count()
-    if pending:
-        print(f"[reminders] {pending} reminder(s) waiting.")
+    print(f"[apps] indexed {tools.APP_INDEX.__len__()} shortcuts.")
+    if assistant.remembered_count():
+        print(f"[memory] remembered {assistant.remembered_count()} thing(s) about you.")
+    if assistant.pending_reminders():
+        print(f"[reminders] {assistant.pending_reminders()} reminder(s) waiting.")
     print("Ready. Type 'exit' to quit.\n")
 
-    turns = []
     try:
         while True:
             try:
@@ -187,13 +75,23 @@ def main():
                 continue
             if user_text.lower() in ("exit", "quit"):
                 break
+
+            state["spoke"] = False
+            state["tool"] = False
             try:
-                handle_turn(mem, turns, user_text, learner)
+                assistant.ask(user_text)
             except Exception as e:
                 print(f"  [error] {e}")
+
+            if state["speaking"]:
+                print()
+                state["speaking"] = False
+            if not state["spoke"] and not state["tool"]:
+                print("AI: hmm, I didn't catch that - say it again?")
+            elif not state["spoke"] and state["tool"]:
+                print("AI: done.")
     finally:
-        reminders.stop()
-        watcher.stop()
+        assistant.stop()
 
 
 if __name__ == "__main__":

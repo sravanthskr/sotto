@@ -744,6 +744,10 @@ _DANGER_LABELS = {
     "sleep_pc": lambda a: "Put the PC to sleep?",
     "lock_pc": lambda a: "Lock the PC?",
     "delete_path": lambda a: f"Move '{a.get('path')}' to the Recycle Bin?",
+    "set_autostart": lambda a: ("Start RealAssistant automatically with Windows?"
+                                if a.get("enable", True)
+                                else "Stop starting RealAssistant with Windows?"),
+    "clear_notes": lambda a: "Delete all saved notes?",
 }
 
 
@@ -1127,3 +1131,43 @@ def list_apps(query="", limit=40):
     if len(names) > limit:
         shown += f" (+{len(names) - limit} more)"
     return shown
+
+
+# ---------------------------------------------------------------------------
+# Notes management + startup
+# ---------------------------------------------------------------------------
+@tool(
+    name="delete_note",
+    description="Delete saved notes matching a word or phrase.",
+    parameters={"type": "object", "properties": {
+        "text": {"type": "string", "description": "Text to match."}}, "required": ["text"]},
+)
+def delete_note(text):
+    if _NOTES is None:
+        return "Error: notes aren't available right now."
+    return _NOTES.remove(text)
+
+
+@tool(name="clear_notes", description="Delete all saved notes.", danger=True)
+def clear_notes():
+    if _NOTES is None:
+        return "Error: notes aren't available right now."
+    return _NOTES.clear()
+
+
+@tool(
+    name="set_autostart",
+    description="Turn 'start RealAssistant automatically with Windows' on or off.",
+    parameters={"type": "object", "properties": {
+        "enable": {"type": "boolean", "description": "True to enable, False to disable."}},
+        "required": []},
+    danger=True,
+)
+def set_autostart(enable=True):
+    return sysactions.set_autostart(bool(enable))
+
+
+@tool(name="get_autostart", description="Check whether RealAssistant starts with Windows.")
+def get_autostart():
+    value = sysactions.get_autostart()
+    return f"Autostart is on: {value}" if value else "Autostart is off."

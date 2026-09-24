@@ -15,6 +15,7 @@ import briefing
 import display
 import fileops
 import proactive
+import sysactions
 import sysinfo
 import tools
 import winctl
@@ -184,6 +185,28 @@ def main():
 
     print("\n== registry: awareness tools ==")
     for n in ("system_status", "top_processes", "network_check", "list_apps"):
+        assert n in tools.REGISTRY, n
+    print("  all present")
+
+    print("\n== notes management & startup ==")
+    with tempfile.TemporaryDirectory() as td:
+        store = Notes(path=Path(td) / "notes.json")
+        store.add("wifi password on router")
+        store.add("buy milk")
+        assert "Deleted 1" in store.remove("wifi")
+        assert len(store.list()) == 1
+        store.clear()
+        assert store.list() == []
+        print("  notes remove + clear ok")
+    print("  autostart currently:", sysactions.get_autostart() or "off")
+
+    print("\n== core engine ==")
+    import core
+    assert hasattr(core, "Assistant")
+    print("  core.Assistant importable (UI-ready facade)")
+
+    print("\n== registry: management tools ==")
+    for n in ("delete_note", "clear_notes", "set_autostart", "get_autostart"):
         assert n in tools.REGISTRY, n
     print("  all present")
 

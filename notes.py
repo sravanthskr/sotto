@@ -54,3 +54,20 @@ class Notes:
         if not q:
             return []
         return [n for n in self.items if q in n["text"].lower()]
+
+    def remove(self, key):
+        needle = (key or "").lower().strip()
+        if not needle:
+            return "Nothing to delete."
+        before = len(self.items)
+        self.items = [n for n in self.items if needle not in n["text"].lower()]
+        removed = before - len(self.items)
+        if removed:
+            self._save()
+        return f"Deleted {removed} note(s)." if removed else f"No note matching '{key}'."
+
+    def clear(self):
+        count = len(self.items)
+        self.items = []
+        self._save()
+        return f"Cleared {count} note(s)."

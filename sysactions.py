@@ -12,6 +12,8 @@ Deletes go to the Recycle Bin, never a hard delete.
 import ctypes
 import os
 import subprocess
+import sys
+import winreg
 from pathlib import Path
 
 _CREATE_NO_WINDOW = 0x08000000
@@ -85,3 +87,48 @@ def delete_to_recycle_bin(path):
     if r.returncode == 0:
         return f"Moved '{p.name}' to the Recycle Bin."
     return f"Error: couldn't remove it ({(r.stderr or '').strip()[:120]})."
+
+
+# ---------------------------------------------------------------------------
+# Start with Windows
+# ---------------------------------------------------------------------------
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_APP_NAME = "RealAssistant"
+
+
+def _launch_command():
+    root = Path(__file__).parent
+    return f'"{sys.executable}" "{root / "main.py"}"'
+
+
+def get_autostart():
+    """Return the current autostart command, or None if it's off."""
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY)
+        try:
+            value, _ = winreg.QueryValueEx(key, _APP_NAME)
+        finally:
+            winreg.CloseKey(key)
+        return value
+    except OSError:
+        return None
+
+
+def set_autostart(enable=True):
+    """Turn 'start with Windows' on or off for the current user."""
+    try:
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, _RUN_KEY)
+        try:
+            if enable:
+                winreg.SetValueEx(key, _APP_NAME, 0, winreg.REG_SZ, _launch_command())
+            else:
+                try:
+                    winreg.DeleteValue(key, _APP_NAME)
+                except FileNotFoundError:
+                    pass
+        finally:
+            winreg.CloseKey(key)
+        return ("RealAssistant will now start with Windows." if enable
+                else "Turned off starting with Windows.")
+    except OSError as e:
+        return f"Error: couldn't change the autostart setting ({e})."
