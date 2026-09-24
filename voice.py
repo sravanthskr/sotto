@@ -53,6 +53,14 @@ def default_voice():
     return VOICE_NAME or ""
 
 
+def list_recognizers():
+    """Ids of the Windows offline recognisers (the fallback engine)."""
+    script = ("Add-Type -AssemblyName System.Speech; "
+              "[System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers()"
+              " | ForEach-Object { $_.Id }")
+    return [line.strip() for line in (_run(script).stdout or "").splitlines() if line.strip()]
+
+
 def speak(text, voice=None, rate=None):
     """Say something out loud. If a custom voice is installed, use it."""
     text = (text or "").strip()
