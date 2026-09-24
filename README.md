@@ -45,6 +45,8 @@ your API key, your memory file, your file paths.
 | `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
 | `proactive.py` | Conservative background watcher that speaks up when it matters. |
 | `main.py` | The console front-end (typing + printing). |
+| `voice.py` | Offline speech: Windows TTS + speech recognition (no API, no GPU). |
+| `voice_main.py` | The hands-free front-end (push-to-talk, voice confirmations). |
 | `run.bat` | Double-click launcher. |
 | `test_e2e.py` | Scripted end-to-end test (uses the API). |
 | `TESTING.md` | The manual testing checklist. |
@@ -108,6 +110,23 @@ interpreter it's using at startup, and `run.bat` picks your project venv automat
 - **System awareness** - CPU/RAM/disk/battery, top processes, network check, list installed apps
 - **Proactive nudges** - quietly warns about low disk space or low battery
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
+
+## Voice (offline, no API, no GPU)
+
+The voice front-end uses Windows' own speech engine - nothing is sent anywhere, and there's
+nothing extra to install:
+
+```powershell
+python voice_main.py        # or:  .\run.bat voice
+```
+
+- Press **Enter**, speak, and it replies out loud.
+- Risky actions are confirmed **by voice** - say "yes" to approve, no clicking.
+- **Text-to-speech** uses the voices already installed on your PC.
+- **Speech-to-text** uses the offline Windows recogniser.
+
+Your own **custom voice sample** is the next step: render to audio, then convert it locally
+with a small voice-conversion model (CPU only - no GPU, no API).
 
 ## Safety
 
@@ -207,5 +226,7 @@ Once active, it runs the offline self-test on every push and pull request on a W
 - [x] System awareness, proactive nudges, multi-step planning
 - [x] Packaging script (.exe) and CI self-test
 - [x] Core/UI split, move/copy/rename, Chrome profiles, web reading, verbal confirmations
-- [ ] Voice: local STT + custom local TTS (no extra AI call)
+- [x] Offline voice front-end (Windows speech engine: TTS + recognition, no API)
+- [ ] Custom voice from your own sample (local voice conversion, CPU)
+- [ ] Deeper browser control (Playwright) and a desktop UI
 - [ ] Desktop UI (options: PySide6 / pywebview / Flet - see below)

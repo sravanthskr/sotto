@@ -19,6 +19,7 @@ import proactive
 import sysactions
 import sysinfo
 import tools
+import voice
 import winctl
 from memory import Memory
 from notes import Notes
@@ -240,6 +241,19 @@ def main():
               "open_chrome_profile", "read_webpage"):
         assert n in tools.REGISTRY, n
     print("  all present")
+
+    print("\n== voice (offline; plays no sound) ==")
+    voices = voice.list_voices()
+    print(f"  installed voices: {len(voices)}" + (f" -> {voices[:3]}" if voices else ""))
+    recognisers = voice.list_recognizers()
+    print(f"  recognisers: {len(recognisers)}"
+          + (f" -> {recognisers[:2]}" if recognisers else ""))
+    with tempfile.TemporaryDirectory() as td:
+        wav = Path(td) / "test.wav"
+        ok = voice.speak_to_wav("testing one two three", str(wav))
+        size = wav.stat().st_size if wav.exists() else 0
+        print(f"  text-to-speech -> wav ok={ok} bytes={size}")
+        assert ok and size > 1000, (ok, size)
 
     print("\nAll offline checks passed.")
 
