@@ -22,6 +22,7 @@ from urllib.parse import quote_plus
 
 import audit
 import briefing
+import browser
 import display
 import fileops
 import sysactions
@@ -78,6 +79,9 @@ def run(name, args):
         result = f"Error: '{name}' is disabled in settings."
         audit.log(name, args, result, danger=entry["danger"])
         return result
+    # models occasionally send junk args (e.g. {"": ""}); keep only real parameters
+    allowed = entry["schema"]["function"].get("parameters", {}).get("properties", {})
+    args = {k: v for k, v in args.items() if k in allowed}
     try:
         result = str(entry["func"](**args))
     except TypeError as e:
@@ -748,17 +752,29 @@ _DANGER_LABELS = {
                                 if a.get("enable", True)
                                 else "Stop starting RealAssistant with Windows?"),
     "clear_notes": lambda a: "Delete all saved notes?",
+    "move_file": lambda a: f"Move '{Path(str(a.get('src', '?'))).name}' to '{a.get('dst', '?')}'?",
+    "rename_file": lambda a: f"Rename '{Path(str(a.get('path', '?'))).name}' to '{a.get('new_name', '?')}'?",
 }
+
+_CONFIRMER = None
+
+
+def set_confirmer(fn):
+    """Front-ends (console, voice) can supply their own yes/no handler."""
+    global _CONFIRMER
+    _CONFIRMER = fn
 
 
 def run_confirmed(name, args):
-    """Ask the user (native dialog) before running a dangerous tool, then run it."""
-    from confirm import ask
+    """Ask the user before running a dangerous tool, then run it."""
+    from confirm import ask as dialog
     if not isinstance(args, dict):
         args = {}
     label = _DANGER_LABELS.get(name)
     question = label(args) if label else f"Run '{name}'?"
-    if not ask(question, "This can't be undone from here, so make sure it's what you want."):
+    detail = "This can't be undone from here, so make sure it's what you want."
+    asker = _CONFIRMER or (lambda q, d: dialog(q, d))
+    if not asker(question, detail):
         return "Cancelled by the user."
     return run(name, args)
 
@@ -848,7 +864,8 @@ def look_up(query):
     if not results:
         return f"No results for '{query}'."
     return " || ".join(
-        f"{r.get('title', '')}: {r.get('body', '')}".strip() for r in results
+        f"{r.get('title', '')}: {r.get('body', '')} ({r.get('href', '')})".strip()
+        for r in results
     )
 
 
@@ -1171,3 +1188,79 @@ def set_autostart(enable=True):
 def get_autostart():
     value = sysactions.get_autostart()
     return f"Autostart is on: {value}" if value else "Autostart is off."
+
+
+# ---------------------------------------------------------------------------
+# Move / copy / rename
+# ---------------------------------------------------------------------------
+@tool(
+    name="move_file",
+    description="Move a file or folder to a new location.",
+    parameters={"type": "object", "properties": {
+        "src": {"type": "string", "description": "File or folder to move."},
+        "dst": {"type": "string", "description": "Destination path or existing folder."}},
+        "required": ["src", "dst"]},
+    danger=True,
+)
+def move_file(src, dst):
+    return fileops.move_path(src, dst)
+
+
+@tool(
+    name="copy_file",
+    description="Copy a file or folder to a new location.",
+    parameters={"type": "object", "properties": {
+        "src": {"type": "string"}, "dst": {"type": "string"}},
+        "required": ["src", "dst"]},
+)
+def copy_file(src, dst):
+    return fileops.copy_path(src, dst)
+
+
+@tool(
+    name="rename_file",
+    description="Rename a file or folder.",
+    parameters={"type": "object", "properties": {
+        "path": {"type": "string"}, "new_name": {"type": "string"}},
+        "required": ["path", "new_name"]},
+    danger=True,
+)
+def rename_file(path, new_name):
+    return fileops.rename_path(path, new_name)
+
+
+# ---------------------------------------------------------------------------
+# Browser profiles
+# ---------------------------------------------------------------------------
+@tool(name="list_chrome_profiles", description="List the Chrome profiles/accounts on this PC.")
+def list_chrome_profiles():
+    profiles = browser.list_chrome_profiles()
+    if not profiles:
+        return "Couldn't read any Chrome profiles."
+    return "; ".join(p["name"] + (f" ({p['email']})" if p["email"] else "")
+                     for p in profiles)
+
+
+@tool(
+    name="open_chrome_profile",
+    description="Open Chrome using a specific account/profile.",
+    parameters={"type": "object", "properties": {
+        "name": {"type": "string", "description": "Profile name or email."}},
+        "required": ["name"]},
+)
+def open_chrome_profile(name):
+    return browser.open_chrome_profile(name)
+
+
+# ---------------------------------------------------------------------------
+# Read a web page
+# ---------------------------------------------------------------------------
+@tool(
+    name="read_webpage",
+    description="Open a web page and read its text back (use this to answer from a source).",
+    parameters={"type": "object", "properties": {
+        "url": {"type": "string"}, "max_chars": {"type": "integer"}},
+        "required": ["url"]},
+)
+def read_webpage(url, max_chars=4000):
+    return briefing.read_webpage(url, max_chars)

@@ -12,7 +12,7 @@ import time
 from dotenv import load_dotenv
 from groq import Groq
 
-from config import MODEL_NAME, TEMPERATURE, MAX_TOKENS, SUMMARY_PROMPT
+from config import MODEL_NAME, TEMPERATURE, MAX_TOKENS, SUMMARY_PROMPT, REASONING_EFFORT
 
 load_dotenv()
 
@@ -32,8 +32,19 @@ def get_client():
     return _client
 
 
+def _tuned(model, messages, temperature, max_tokens, stream=False):
+    kwargs = {"model": model, "messages": messages,
+              "temperature": temperature, "max_tokens": max_tokens}
+    if "gpt-oss" in model and REASONING_EFFORT:
+        # gpt-oss is a reasoning model; low effort is faster and avoids empty replies
+        kwargs["reasoning_effort"] = REASONING_EFFORT
+    if stream:
+        kwargs["stream"] = True
+    return kwargs
+
+
 def _create(**kwargs):
-    """Call Groq with a couple of retries on rate limits / transient errors."""
+    """Call Groq with retries on rate limits / transient errors."""
     last = None
     for attempt in range(3):
         try:
@@ -41,6 +52,9 @@ def _create(**kwargs):
         except Exception as e:
             last = e
             text = str(e).lower()
+            if "reasoning_effort" in text and "reasoning_effort" in kwargs:
+                kwargs.pop("reasoning_effort", None)   # model doesn't support it
+                continue
             transient = any(t in text for t in ("429", "rate", "503", "502", "timeout",
                                                 "temporarily", "overloaded"))
             if transient and attempt < 2:
@@ -50,24 +64,22 @@ def _create(**kwargs):
     raise last
 
 
-def ask_ai(messages, tools=None):
+def ask_ai(messages, tools=None, max_tokens=None):
     """Send a conversation; return the raw assistant message object."""
-    kwargs = dict(model=MODEL_NAME, messages=messages,
-                  temperature=TEMPERATURE, max_tokens=MAX_TOKENS)
+    kwargs = _tuned(MODEL_NAME, messages, TEMPERATURE, max_tokens or MAX_TOKENS)
     if tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
     return _create(**kwargs).choices[0].message
 
 
-def stream_ai(messages, tools=None, on_text=None):
+def stream_ai(messages, tools=None, on_text=None, max_tokens=None):
     """Like ask_ai, but streams text out as it arrives.
 
     Calls on_text(chunk) for each content piece, and returns the assembled message
     as a plain dict (with any tool calls reassembled from their fragments).
     """
-    kwargs = dict(model=MODEL_NAME, messages=messages, temperature=TEMPERATURE,
-                  max_tokens=MAX_TOKENS, stream=True)
+    kwargs = _tuned(MODEL_NAME, messages, TEMPERATURE, max_tokens or MAX_TOKENS, stream=True)
     if tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
@@ -120,22 +132,16 @@ def stream_ai(messages, tools=None, on_text=None):
 
 def summarize(messages):
     """Compress a chunk of conversation into a short paragraph."""
-    out = _create(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": SUMMARY_PROMPT},
-            {"role": "user", "content": _flatten(messages)},
-        ],
-        temperature=0.3,
-        max_tokens=600,
-    )
+    out = _create(**_tuned(MODEL_NAME,
+                           [{"role": "system", "content": SUMMARY_PROMPT},
+                            {"role": "user", "content": _flatten(messages)}],
+                           0.3, 600))
     return out.choices[0].message.content.strip()
 
 
 def complete(messages, max_tokens=600, temperature=0.0):
     """A plain, non-streaming completion that returns just the text."""
-    out = _create(model=MODEL_NAME, messages=messages,
-                  temperature=temperature, max_tokens=max_tokens)
+    out = _create(**_tuned(MODEL_NAME, messages, temperature, max_tokens))
     return out.choices[0].message.content or ""
 
 

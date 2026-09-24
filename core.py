@@ -15,7 +15,7 @@ from datetime import datetime
 
 from config import (
     SYSTEM_PROMPT, RECENT_TURNS_KEPT, SUMMARIZE_WHEN_TURNS_OVER, MAX_TOOL_ROUNDS,
-    PROACTIVE, PROACTIVE_INTERVAL,
+    PROACTIVE, PROACTIVE_INTERVAL, CONFIRM_MODE,
 )
 import ai_engine
 import tools
@@ -30,15 +30,19 @@ class Assistant:
     """The brain + hands + memory, with no opinions about how it's displayed."""
 
     def __init__(self, on_text=None, on_tool=None, on_reminder=None,
-                 on_proactive=None, on_learned=None):
+                 on_proactive=None, on_learned=None, on_status=None, on_confirm=None):
         self.on_text = on_text            # callable(chunk:str)
         self.on_tool = on_tool            # callable(name:str, args:dict, result:str)
         self.on_reminder = on_reminder    # callable(message:str)
         self.on_proactive = on_proactive  # callable(message:str)
         self.on_learned = on_learned      # callable(facts:list[str])
+        self.on_status = on_status        # callable(state:"thinking"|"speaking"|"idle")
+        self.on_confirm = on_confirm      # callable(question:str, detail:str) -> bool
+        self.confirm_mode = CONFIRM_MODE  # "dialog" or "chat"
 
         self.memory = Memory()
         tools.set_memory(self.memory)
+        tools.set_confirmer(self._confirm)
         self.notes = Notes()
         tools.set_notes(self.notes)
         self.learner = FactLearner(self.memory)
@@ -57,11 +61,32 @@ class Assistant:
     def start(self):
         tools.build_app_index()
         self.reminders.start()
+
+    def start_watcher(self):
         self.watcher.start()
 
     def stop(self):
         self.reminders.stop()
         self.watcher.stop()
+
+    # -- status / confirmation --------------------------------------------
+    def _status(self, state):
+        if self.on_status:
+            self.on_status(state)
+
+    def _confirm(self, question, detail):
+        """Yes/no gate for risky actions - chat-style so voice can answer it too."""
+        if self.on_confirm:
+            return bool(self.on_confirm(question, detail))
+        if self.confirm_mode == "chat":
+            try:
+                answer = input(f"  [!] {question} [yes/no]: ").strip().lower()
+            except EOFError:
+                return False
+            return answer in ("y", "yes", "yeah", "yep", "ok", "okay", "sure",
+                              "do it", "go ahead")
+        from confirm import ask
+        return ask(question, detail)
 
     # -- default (console-less) callbacks ---------------------------------
     def _handle_reminder(self, reminder):
@@ -94,13 +119,20 @@ class Assistant:
         messages = self._build_messages(user_text)
         group = [{"role": "user", "content": user_text}]
         spoken = []
+        first = {"v": True}
 
         def emit(chunk):
+            if first["v"]:
+                self._status("speaking")
+                first["v"] = False
             spoken.append(chunk)
             if self.on_text:
                 self.on_text(chunk)
 
+        used_tools = False
         for _round in range(MAX_TOOL_ROUNDS):
+            first["v"] = True
+            self._status("thinking")
             message = ai_engine.stream_ai(messages, tools=tools.schemas(), on_text=emit)
             messages.append(message)
             group.append(message)
@@ -108,6 +140,7 @@ class Assistant:
             calls = message.get("tool_calls")
             if not calls:
                 break
+            used_tools = True
 
             for call in calls:
                 fn = call.get("function", {})
@@ -127,10 +160,21 @@ class Assistant:
                 messages.append(tool_message)
                 group.append(tool_message)
         else:
+            first["v"] = True
+            self._status("thinking")
             final = ai_engine.stream_ai(messages, tools=None, on_text=emit)
             messages.append(final)
             group.append(final)
 
+        # the model sometimes returns nothing on a tight token budget - try once more
+        if not "".join(spoken).strip() and not used_tools:
+            first["v"] = True
+            self._status("thinking")
+            retry = ai_engine.stream_ai(messages, on_text=emit, max_tokens=1500)
+            messages.append(retry)
+            group.append(retry)
+
+        self._status("idle")
         self.turns.append(group)
         self._compress()
         self.learner.learn_async(group, on_new=self._handle_learned)

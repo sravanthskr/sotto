@@ -6,6 +6,7 @@ moves so `undo_organize()` can put everything back.
 """
 
 import json
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -105,3 +106,65 @@ def undo_organize():
     except OSError:
         pass
     return f"Put {restored} files back where they were."
+
+
+# ---------------------------------------------------------------------------
+# Move / copy / rename
+# ---------------------------------------------------------------------------
+def _expand(p):
+    return Path(os.path.expandvars(os.path.expanduser(str(p).strip())))
+
+
+def _dest_path(src, dst):
+    """Work out the final destination (into a folder, and never overwrite)."""
+    if dst.is_dir():
+        dst = dst / src.name
+    if dst.exists():
+        dst = dst.with_name(f"{dst.stem}_{datetime.now():%H%M%S}{dst.suffix}")
+    return dst
+
+
+def move_path(src, dst):
+    s, d = _expand(src), _expand(dst)
+    if not s.exists():
+        return f"Error: there's nothing at '{src}'."
+    d = _dest_path(s, d)
+    try:
+        d.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(s), str(d))
+        return f"Moved '{s.name}' to {d}."
+    except Exception as e:
+        return f"Error: couldn't move it ({e})."
+
+
+def copy_path(src, dst):
+    s, d = _expand(src), _expand(dst)
+    if not s.exists():
+        return f"Error: there's nothing at '{src}'."
+    d = _dest_path(s, d)
+    try:
+        d.parent.mkdir(parents=True, exist_ok=True)
+        if s.is_dir():
+            shutil.copytree(str(s), str(d))
+        else:
+            shutil.copy2(str(s), str(d))
+        return f"Copied '{s.name}' to {d}."
+    except Exception as e:
+        return f"Error: couldn't copy it ({e})."
+
+
+def rename_path(path, new_name):
+    p = _expand(path)
+    if not p.exists():
+        return f"Error: there's nothing at '{path}'."
+    new_name = str(new_name).strip()
+    if not new_name:
+        return "Error: I need a new name."
+    target = p.with_name(new_name if Path(new_name).suffix else new_name + p.suffix)
+    if target.exists():
+        return f"Error: '{target.name}' already exists."
+    try:
+        p.rename(target)
+        return f"Renamed '{p.name}' to '{target.name}'."
+    except Exception as e:
+        return f"Error: couldn't rename it ({e})."

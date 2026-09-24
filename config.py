@@ -43,10 +43,12 @@ DOWNLOADS_DIR = _HOME / "Downloads"
 _DEFAULTS = {
     "model": "openai/gpt-oss-20b",
     "temperature": 0.6,
-    "max_tokens": 400,
+    "reasoning_effort": "low",   # "low" = fast + avoids the empty-reply bug on gpt-oss
+    "max_tokens": 1024,
     "denied_tools": [],
     "proactive": True,
     "proactive_interval_seconds": 300,
+    "confirm_mode": "dialog",     # "dialog" (native box) or "chat" (answer by voice/text)
 }
 
 
@@ -78,6 +80,26 @@ MAX_TOKENS = int(_SETTINGS["max_tokens"])
 DENIED_TOOLS = {str(t) for t in _SETTINGS.get("denied_tools", [])}
 PROACTIVE = bool(_SETTINGS.get("proactive", True))
 PROACTIVE_INTERVAL = int(_SETTINGS.get("proactive_interval_seconds", 300))
+CONFIRM_MODE = str(_SETTINGS.get("confirm_mode", "dialog"))
+REASONING_EFFORT = str(_SETTINGS.get("reasoning_effort", "low"))
+
+# ---------------------------------------------------------------------------
+# Dependency check (so a wrong interpreter gives a clear message, not weird errors)
+# ---------------------------------------------------------------------------
+OPTIONAL_DEPS = {
+    "PIL": "Pillow",
+    "ddgs": "ddgs",
+    "pypdf": "pypdf",
+    "pycaw": "pycaw",
+    "comtypes": "comtypes",
+    "psutil": "psutil",
+}
+
+
+def missing_deps():
+    import importlib.util
+    return [(mod, pip) for mod, pip in OPTIONAL_DEPS.items()
+            if importlib.util.find_spec(mod) is None]
 
 # ---------------------------------------------------------------------------
 # Persona - this is the soul of the thing. Keep it human.
@@ -107,6 +129,10 @@ How you act:
 - Don't narrate steps. Do the thing, then say what happened.
 - For multi-step requests, plan them out and work through each step, then give one short summary
   of the result - don't ask the user to break it down for you.
+- Never invent facts. If you don't know something, or a lookup failed, say so plainly instead of
+  guessing - a confident wrong answer is worse than "I couldn't find that".
+- To move or rename files use move_file / rename_file - never delete_path.
+- Keep lists short unless the user actually asked for everything.
 
 Memory:
 - You remember things about the user over time. Use that naturally, the way a friend would.

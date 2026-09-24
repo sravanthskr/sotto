@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import briefing
+import browser
 import display
 import fileops
 import proactive
@@ -207,6 +208,36 @@ def main():
 
     print("\n== registry: management tools ==")
     for n in ("delete_note", "clear_notes", "set_autostart", "get_autostart"):
+        assert n in tools.REGISTRY, n
+    print("  all present")
+
+    print("\n== file move / copy / rename ==")
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        src = root / "a.txt"
+        src.write_text("hello")
+        sub = root / "sub"
+        sub.mkdir()
+        print("  move:", fileops.move_path(str(src), str(sub)))
+        assert (sub / "a.txt").exists() and not src.exists()
+        print("  copy:", fileops.copy_path(str(sub / "a.txt"), str(root / "b.txt")))
+        assert (root / "b.txt").exists()
+        print("  rename:", fileops.rename_path(str(root / "b.txt"), "c.txt"))
+        assert (root / "c.txt").exists()
+
+    print("\n== browser profiles ==")
+    profiles = browser.list_chrome_profiles()
+    print(f"  found {len(profiles)} chrome profile(s): "
+          + ", ".join(p["name"] for p in profiles[:4]))
+
+    print("\n== tool-arg robustness ==")
+    out = tools.run("get_system_info", {"": ""})   # junk arg must be ignored
+    assert "bad arguments" not in out, out
+    print("  junk arguments ignored ok")
+
+    print("\n== registry: new tools ==")
+    for n in ("move_file", "copy_file", "rename_file", "list_chrome_profiles",
+              "open_chrome_profile", "read_webpage"):
         assert n in tools.REGISTRY, n
     print("  all present")
 

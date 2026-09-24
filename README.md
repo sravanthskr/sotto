@@ -40,7 +40,8 @@ your API key, your memory file, your file paths.
 | `learn.py` | Quietly mines the chat for durable facts to remember. |
 | `audit.py` | Local log of every action taken. |
 | `display.py` | Screen brightness + exact master volume. |
-| `briefing.py` | Weather + daily briefing. |
+| `briefing.py` | Weather + daily briefing + reading a web page's text. |
+| `browser.py` | Chrome profile listing + opening a specific account. |
 | `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
 | `proactive.py` | Conservative background watcher that speaks up when it matters. |
 | `main.py` | The console front-end (typing + printing). |
@@ -66,7 +67,11 @@ python selftest.py
 
 # 4. run it
 python main.py
+# ...or just double-click run.bat (it finds the right interpreter for you)
 ```
+
+If tools report missing libraries, you're running on the wrong Python - the app prints which
+interpreter it's using at startup, and `run.bat` picks your project venv automatically.
 
 ## What it can do right now
 
@@ -91,6 +96,11 @@ python main.py
 - **Memory you control** - ask what it knows, or tell it to forget
 - **Reads files** - summarise or answer questions about txt/md/code/PDF/docx
 - **Finds files** - by name, or search inside them
+- **Moves / copies / renames** files safely (move asks first; copy doesn't)
+- **Chrome profiles** - open Chrome under a specific account
+- **Reads a web page** back as text, so it can answer from a source
+- **Live status** - shows `... thinking` so you always know it's working
+- **Answer by voice/text** for risky actions (set `confirm_mode` to `chat`)
 - **Audit log** - see every action it took
 - **Window snapping** - left / right / top / bottom / centre / maximise
 - **Brightness** and **exact volume** percentage
@@ -147,11 +157,19 @@ change the model, reply length, or to disable specific tools:
 ```json
 {
   "model": "openai/gpt-oss-20b",
+  "reasoning_effort": "low",
   "temperature": 0.6,
-  "max_tokens": 400,
-  "denied_tools": []
+  "max_tokens": 1024,
+  "denied_tools": [],
+  "proactive": true,
+  "proactive_interval_seconds": 300,
+  "confirm_mode": "dialog"
 }
 ```
+
+`confirm_mode` is `"dialog"` (a native yes/no box) or `"chat"` (answer by typing/voice -
+better once the voice layer exists). `reasoning_effort` is `low`/`medium`/`high`; `low` is
+faster and avoids empty replies on gpt-oss.
 
 Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant will refuse to run it.
 
@@ -188,5 +206,6 @@ Once active, it runs the offline self-test on every push and pull request on a W
 - [x] Window snapping, brightness, exact volume, weather + daily briefing
 - [x] System awareness, proactive nudges, multi-step planning
 - [x] Packaging script (.exe) and CI self-test
+- [x] Core/UI split, move/copy/rename, Chrome profiles, web reading, verbal confirmations
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
 - [ ] Desktop UI (options: PySide6 / pywebview / Flet - see below)
