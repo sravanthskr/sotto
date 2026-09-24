@@ -20,6 +20,7 @@ import sysactions
 import sysinfo
 import tools
 import voice
+import voice_convert
 import winctl
 from memory import Memory
 from notes import Notes
@@ -255,6 +256,8 @@ def main():
         size = wav.stat().st_size if wav.exists() else 0
         print(f"  text-to-speech -> wav ok={ok} bytes={size}")
         assert ok and size > 1000, (ok, size)
+    print(f"  stt ready: {voice.stt_ready()}  input devices: {len(voice.list_input_devices())}")
+    print("  custom voices:", voice_convert.available_voices() or "(none installed)")
     for n in ("list_voices", "say", "set_voice"):
         assert n in tools.REGISTRY, n
 

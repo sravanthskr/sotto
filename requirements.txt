@@ -6,3 +6,6 @@ pypdf>=4.0.0
 pycaw>=20230407
 comtypes>=1.4.0
 psutil>=5.9.0
+sounddevice>=0.4.6
+numpy>=1.26
+vosk>=0.3.45

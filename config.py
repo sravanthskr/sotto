@@ -51,6 +51,8 @@ _DEFAULTS = {
     "confirm_mode": "dialog",     # "dialog" (native box) or "chat" (answer by voice/text)
     "voice_name": "",             # "" = system default; or e.g. "Microsoft Zira Desktop"
     "voice_rate": 0,              # -10..10 (0 = normal speed)
+    "mic_device": None,           # null = system default mic, or an index from mic_test.py
+    "custom_voice": "",           # name of a folder in %LOCALAPPDATA%\RealAssistant\voices
 }
 
 
@@ -86,6 +88,9 @@ CONFIRM_MODE = str(_SETTINGS.get("confirm_mode", "dialog"))
 REASONING_EFFORT = str(_SETTINGS.get("reasoning_effort", "low"))
 VOICE_NAME = str(_SETTINGS.get("voice_name", ""))
 VOICE_RATE = int(_SETTINGS.get("voice_rate", 0))
+MIC_DEVICE = _SETTINGS.get("mic_device")   # None = default mic, or an int index
+CUSTOM_VOICE = str(_SETTINGS.get("custom_voice", ""))
+VOICE_MODELS_DIR = DATA_DIR / "voices"
 
 
 def save_setting(key, value):

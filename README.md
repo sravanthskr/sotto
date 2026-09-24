@@ -47,6 +47,9 @@ your API key, your memory file, your file paths.
 | `main.py` | The console front-end (typing + printing). |
 | `voice.py` | Offline speech: Windows TTS + speech recognition (no API, no GPU). |
 | `voice_main.py` | The hands-free front-end (push-to-talk, voice confirmations). |
+| `voice_convert.py` | Plug-in point for a custom (RVC) voice. |
+| `mic_test.py` | Microphone + speech-recognition diagnostic. |
+| `VOICE_GUIDE.md` | How to train your own voice on Colab. |
 | `run.bat` | Double-click launcher. |
 | `test_e2e.py` | Scripted end-to-end test (uses the API). |
 | `TESTING.md` | The manual testing checklist. |
@@ -123,7 +126,9 @@ python voice_main.py        # or:  .\run.bat voice
 - Press **Enter**, speak, and it replies out loud.
 - Risky actions are confirmed **by voice** - say "yes" to approve, no clicking.
 - **Text-to-speech** uses the voices already installed on your PC.
-- **Speech-to-text** uses the offline Windows recogniser.
+- **Speech-to-text** uses **Vosk** (offline, CPU). If it doesn't hear you, run
+  `python mic_test.py` - it lists your mics, shows the level, and prints what it heard.
+  Requires `sounddevice`, `numpy`, `vosk`, and a one-time model download (see Setup).
 
 Your own **custom voice sample** is the next step: render to audio, then convert it locally
 with a small voice-conversion model (CPU only - no GPU, no API).

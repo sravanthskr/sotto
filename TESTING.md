@@ -100,6 +100,13 @@ You should see `Starting up...`, an `[apps] indexed N shortcuts.` line, and `Rea
 - [ ] Build: `python build.py` -> `dist\RealAssistant.exe`
 - [ ] Copy `.env` next to the exe, run it -> same behaviour as `python main.py`
 
+## 12. Voice (offline)
+- [ ] Run `\run.bat voice`, press **Enter**, say *"open notepad"* -> it opens and replies out loud
+- [ ] If it hears nothing, run `python mic_test.py` -> check the level and the printed transcript
+- [ ] Say *"shut down in 2 minutes"* -> it asks out loud -> say **"yes"** -> then ⚠`cancel shutdown`
+- [ ] `list your voices` / `use the Zira voice` -> voice changes after restart
+- [ ] See `VOICE_GUIDE.md` for adding your own custom voice
+
 ## What "good" looks like
 
 - Replies are short and human; it never says it's an AI
