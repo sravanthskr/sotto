@@ -151,6 +151,28 @@ change the model, reply length, or to disable specific tools:
 
 Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant will refuse to run it.
 
+## Packaging it as an .exe
+
+```powershell
+python -m pip install pyinstaller
+python build.py
+```
+
+That produces `dist\RealAssistant.exe` (one file). Put your `.env` next to the `.exe` before
+running it. If a tool uses a library PyInstaller can't detect automatically, add it to
+`HIDDEN_IMPORTS` in `build.py`.
+
+## Continuous integration
+
+The self-test workflow lives in `ci/selftest.yml`. GitHub refuses files under `.github/workflows/`
+unless the token has the **workflow** scope, so to switch CI on either:
+
+- copy `ci/selftest.yml` to `.github/workflows/selftest.yml` from GitHub's web UI (Actions tab),
+  or
+- give your token the `workflow` scope, then move the file there.
+
+Once active, it runs the offline self-test on every push and pull request on a Windows runner.
+
 ## Roadmap
 
 - [x] Text loop, persona, tool calling, app scanner
@@ -161,6 +183,6 @@ Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant wil
 - [x] Auto-learning memory, recall/forget, file reading + search, audit log, settings.json
 - [x] Window snapping, brightness, exact volume, weather + daily briefing
 - [x] System awareness, proactive nudges, multi-step planning
-- [ ] Packaging (.exe + autostart) and CI
+- [x] Packaging script (.exe) and CI self-test
 - [ ] Voice: local STT + custom local TTS (no extra AI call)
-- [ ] UI (Bring Your Own Key)
+- [ ] Desktop UI (options: PySide6 / pywebview / Flet - see below)
