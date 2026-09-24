@@ -7,9 +7,14 @@ on your PC (a confirmation box will appear first - that's the point).
 ## 0. Run it
 
 ```powershell
-# from the project folder
-python main.py
+# from the project folder - use run.bat so the RIGHT interpreter is used
+.\run.bat
+# (or explicitly)
+C:\Users\srava\Desktop\Python\.venv\RealAssistant\Scripts\python.exe main.py
 ```
+
+> Running plain `python main.py` may pick a different Python that's missing libraries.
+> The app prints which interpreter it's using, and warns about anything missing.
 
 You should see `Starting up...`, an `[apps] indexed N shortcuts.` line, and `Ready.`.
 
@@ -32,7 +37,9 @@ You should see `Starting up...`, an `[apps] indexed N shortcuts.` line, and `Rea
 - [ ] `which windows are open?`
 - [ ] `bring chrome to the front`
 - [ ] `snap chrome to the left`, then `right`, then `maximize`
-- [ ] ⚠ `close notepad`
+- [ ] `list my chrome profiles`
+- [ ] `open chrome with the Sravanth profile` (use one of your profile names)
+- [ ] ⚠ `close notepad` -> answer the confirmation by voice/typing (see section 9)
 
 ## 4. Web & info
 - [ ] `who won the last F1 race?` -> uses look_up and answers in its own words
@@ -46,6 +53,10 @@ You should see `Starting up...`, an `[apps] indexed N shortcuts.` line, and `Rea
 - [ ] `find files with "invoice"` (or any name you know)
 - [ ] `find files that mention "voiceStra"`
 - [ ] `read C:\Users\srava\Desktop\RealAssistant\README.md` -> summarises/returns it
+- [ ] `read this page <paste a news url>` -> reads it back
+- [ ] ⚠ `move the Animal Farm pdf into a Books folder` -> should **move** it (create the folder first), NOT delete it
+- [ ] `copy that file to the desktop` -> makes a copy, no confirmation needed
+- [ ] `rename that file to something else`
 - [ ] ⚠ `organize my downloads` -> confirm box, then files sorted into folders
 - [ ] ⚠ `undo that` -> files put back
 
@@ -77,6 +88,8 @@ You should see `Starting up...`, an `[apps] indexed N shortcuts.` line, and `Rea
 ## 9. Safety (the important ones)
 - [ ] Any ⚠ action shows a **native confirmation box** and does nothing until you click Yes
 - [ ] Click **No** on a shutdown prompt -> it says it was cancelled and nothing happens
+- [ ] Set `"confirm_mode": "chat"` in `settings.json`, restart, then a ⚠ action asks in the
+      chat instead - answer `yes` / `no` by typing (this is the voice-friendly path)
 - [ ] `what have you done recently?` -> audit log of actions
 
 ## 10. Multi-step
