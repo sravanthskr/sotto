@@ -12,7 +12,8 @@ import time
 from dotenv import load_dotenv
 from groq import Groq
 
-from config import MODEL_NAME, TEMPERATURE, MAX_TOKENS, SUMMARY_PROMPT, REASONING_EFFORT
+from config import (MODEL_NAME, TEMPERATURE, MAX_TOKENS, SUMMARY_PROMPT, REASONING_EFFORT,
+                    API_KEY_ENV, API_BASE_URL)
 
 load_dotenv()
 
@@ -22,13 +23,16 @@ _client = None
 def get_client():
     global _client
     if _client is None:
-        key = (os.environ.get("GROQ_API_KEY") or "").strip()
-        if not key or key.startswith("gsk_xxx"):
+        key = (os.environ.get(API_KEY_ENV) or os.environ.get("GROQ_API_KEY") or "").strip()
+        if not key:
             raise RuntimeError(
                 "GROQ_API_KEY is missing. Create a file named .env next to the project "
                 "with one line: GROQ_API_KEY=your_key_here"
             )
-        _client = Groq(api_key=key)
+        options = {"api_key": key}
+        if API_BASE_URL:
+            options["base_url"] = API_BASE_URL
+        _client = Groq(**options)
     return _client
 
 

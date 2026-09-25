@@ -42,6 +42,8 @@ DOWNLOADS_DIR = _HOME / "Downloads"
 # ---------------------------------------------------------------------------
 _DEFAULTS = {
     "model": "openai/gpt-oss-20b",
+    "api_key_env": "GROQ_API_KEY",   # which .env variable holds the key
+    "base_url": "",                  # e.g. https://openrouter.ai/api/v1 for another provider
     "temperature": 0.6,
     "reasoning_effort": "low",   # "low" = fast + avoids the empty-reply bug on gpt-oss
     "max_tokens": 1024,
@@ -80,6 +82,8 @@ def ensure_settings_file():
 _SETTINGS = load_settings()
 
 MODEL_NAME = str(_SETTINGS["model"])
+API_KEY_ENV = str(_SETTINGS.get("api_key_env", "GROQ_API_KEY"))
+API_BASE_URL = str(_SETTINGS.get("base_url", "") or "")
 TEMPERATURE = float(_SETTINGS["temperature"])
 MAX_TOKENS = int(_SETTINGS["max_tokens"])
 DENIED_TOOLS = {str(t) for t in _SETTINGS.get("denied_tools", [])}
