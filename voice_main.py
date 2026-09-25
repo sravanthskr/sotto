@@ -34,10 +34,10 @@ def main():
     print(f"Voice mode (model: {MODEL_NAME})")
 
     voices = voice.list_voices()
-    recognisers = voice.list_recognizers()
     print(f"[voice] {len(voices)} voice(s): {', '.join(voices[:5])}")
-    if not recognisers:
-        print("[voice] no offline recogniser found - you can still type requests.")
+    if not voice.stt_ready():
+        print("[voice] speech recognition isn't ready - run:  python voice_check.py")
+        print("[voice] (you can still type requests below)")
 
     buffer = []
 
@@ -49,8 +49,12 @@ def main():
 
     def on_confirm(question, detail):
         print(f"  [?] {question}")
-        voice.speak(question)
-        heard = voice.listen_once(5).lower()
+        try:
+            voice.speak(question)
+            heard = voice.listen_once(5).lower()
+        except Exception as e:
+            print(f"  [voice error] {e}")
+            heard = ""
         print(f"  (heard: {heard!r})")
         return any(word in heard for word in _YES)
 
@@ -78,7 +82,11 @@ def main():
                 user_text = typed                 # typed fallback
             else:
                 print("  listening...")
-                user_text = voice.listen_once(8)
+                try:
+                    user_text = voice.listen_once(8)
+                except Exception as e:
+                    print(f"  [mic error] {e}")
+                    user_text = ""
                 print(f"  heard: {user_text!r}")
             if not user_text:
                 continue
@@ -90,7 +98,10 @@ def main():
                 print(f"  [error] {e}")
             reply = "".join(buffer).strip()
             if reply:
-                voice.speak(reply)
+                try:
+                    voice.speak(reply)
+                except Exception as e:
+                    print(f"  [speak error] {e}")
     finally:
         assistant.stop()
 

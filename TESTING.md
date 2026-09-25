@@ -101,8 +101,9 @@ You should see `Starting up...`, an `[apps] indexed N shortcuts.` line, and `Rea
 - [ ] Copy `.env` next to the exe, run it -> same behaviour as `python main.py`
 
 ## 12. Voice (offline)
+- [ ] Run `python voice_check.py` -> every line should say PASS
 - [ ] Run `\run.bat voice`, press **Enter**, say *"open notepad"* -> it opens and replies out loud
-- [ ] If it hears nothing, run `python mic_test.py` -> check the level and the printed transcript
+- [ ] If it hears nothing, run `python voice_check.py --mic` and check the level
 - [ ] Say *"shut down in 2 minutes"* -> it asks out loud -> say **"yes"** -> then ⚠`cancel shutdown`
 - [ ] `list your voices` / `use the Zira voice` -> voice changes after restart
 - [ ] See `VOICE_GUIDE.md` for adding your own custom voice
