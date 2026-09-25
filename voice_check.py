@@ -54,6 +54,11 @@ def main():
     print("\n=== result ===")
     ready = voice.stt_ready()
     check(ready, "offline speech recognition ready")
+    if not ready:
+        print(f"\n  you are running: {sys.executable}")
+        print("  that's the wrong Python. Use the project one instead:")
+        print("        .\\run.bat check")
+        print("        .\\run.bat mic      (to test the microphone)")
 
     if "--mic" in sys.argv:
         print("\n=== live mic test (4s) - SPEAK NOW ===")
@@ -66,7 +71,7 @@ def main():
             if level < 50:
                 print("        !! very low level - set \"mic_device\": <index> in settings.json")
     else:
-        print("\n(tip: run `python voice_check.py --mic` to test the microphone)")
+        print("\n(tip: run `run.bat mic` to test the microphone)")
 
     print("\nDone.")
     return 0

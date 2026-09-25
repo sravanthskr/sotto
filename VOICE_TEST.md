@@ -6,13 +6,14 @@ You don't need to test every tool - these 10 cover the important paths.
 ## 0. Sanity check (no talking)
 
 ```powershell
-python voice_check.py
+.\run.bat check
 ```
 
-Every line should say **PASS**. If the microphone line looks wrong, or the `--mic` level is tiny:
+Use `run.bat` - plain `python` may be a different interpreter that lacks the voice libraries.
+Everything should say **PASS**. For the mic test:
 
 ```powershell
-python voice_check.py --mic      # speak during the 4s; check `level` and `heard:`
+.\run.bat mic      # speak during the 4s; check `level` and `heard:`
 ```
 
 Low level means the default mic isn't the one you speak into. Run `voice_check.py` to see the

@@ -51,7 +51,7 @@ your API key, your memory file, your file paths.
 | `mic_test.py` | Microphone + speech-recognition diagnostic. |
 | `voice_check.py` | Full voice self-diagnosis (PASS/FAIL with fixes). |
 | `VOICE_GUIDE.md` | How to train your own voice on Colab. |
-| `run.bat` | Double-click launcher. |
+| `run.bat` | Double-click launcher: `run.bat`, `run.bat voice`, `run.bat check`, `run.bat mic`. |
 | `test_e2e.py` | Scripted end-to-end test (uses the API). |
 | `TESTING.md` | The manual testing checklist. |
 | `selftest.py` | Offline checks (no API key needed). |
