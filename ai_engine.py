@@ -61,7 +61,22 @@ def _create(**kwargs):
                 time.sleep(1.5 * (attempt + 1))
                 continue
             break
-    raise last
+    raise RuntimeError(_friendly(last)) from last
+
+
+def _friendly(err):
+    """Turn common API failures into something a human can act on."""
+    text = str(err)
+    low = text.lower()
+    if "403" in text and "access denied" in low:
+        return ("The assistant service refused the request (403 Access denied). "
+                "This is usually a VPN/proxy - turn it off and retry. "
+                "Run `run.bat api` to test.")
+    if "401" in text or "invalid api key" in low or "unauthorized" in low:
+        return "The API key looks wrong or expired - check GROQ_API_KEY in .env."
+    if "429" in text or "rate limit" in low:
+        return "Rate limited by the assistant service - wait a moment and try again."
+    return text
 
 
 def ask_ai(messages, tools=None, max_tokens=None):

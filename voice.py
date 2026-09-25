@@ -17,7 +17,7 @@ import tempfile
 import wave
 from pathlib import Path
 
-from config import VOICE_NAME, VOICE_RATE, MIC_DEVICE
+from config import VOICE_NAME, VOICE_RATE, MIC_DEVICE, STT_MODEL
 
 _PS = ["powershell", "-NoProfile", "-Command"]
 _NO_WINDOW = 0x08000000
@@ -120,10 +120,49 @@ def vosk_model():
 def stt_ready():
     try:
         import sounddevice  # noqa: F401
-        import vosk         # noqa: F401
     except ImportError:
         return False
-    return vosk_model() is not None
+    if _whisper_model_name():
+        return True
+    if vosk_model() and _vosk_importable():
+        return True
+    return False
+
+
+def _vosk_importable():
+    try:
+        import vosk  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+_WHISPER_CACHE = {"model": None, "name": None}
+
+
+def _whisper_model_name():
+    """The faster-whisper model name, or None if the library isn't installed."""
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        return None
+    return STT_MODEL or "small.en"
+
+
+def _whisper():
+    """Lazily load (and cache) the faster-whisper model."""
+    name = _whisper_model_name()
+    if not name:
+        return None
+    if _WHISPER_CACHE["model"] is not None and _WHISPER_CACHE["name"] == name:
+        return _WHISPER_CACHE["model"]
+    try:
+        from faster_whisper import WhisperModel
+        _WHISPER_CACHE["model"] = WhisperModel(name, device="cpu", compute_type="int8")
+        _WHISPER_CACHE["name"] = name
+        return _WHISPER_CACHE["model"]
+    except Exception:
+        return None
 
 
 def list_input_devices():
@@ -204,10 +243,24 @@ def record_wav(path, seconds=4, device=None):
 
 
 def transcribe_wav(path):
-    """Return (text, error). text is '' when nothing was understood."""
+    """Return (text, error). Uses faster-whisper when available, else Vosk."""
+    model = _whisper()
+    if model is not None:
+        try:
+            segments, _info = model.transcribe(
+                str(path), language="en", vad_filter=True,
+                condition_on_previous_text=False, beam_size=1)
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+            return text, None
+        except Exception as e:
+            return None, str(e)
+    return _vosk_transcribe(path)
+
+
+def _vosk_transcribe(path):
     model_path = vosk_model()
     if not model_path:
-        return None, "no vosk model found"
+        return None, "no speech model found"
     try:
         from vosk import KaldiRecognizer, Model, SetLogLevel
         SetLogLevel(-1)

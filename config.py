@@ -52,6 +52,7 @@ _DEFAULTS = {
     "voice_name": "",             # "" = system default; or e.g. "Microsoft Zira Desktop"
     "voice_rate": 0,              # -10..10 (0 = normal speed)
     "mic_device": None,           # null = system default mic, or an index from mic_test.py
+    "stt_model": "small.en",       # faster-whisper model; try base.en (lighter) or medium.en (better)
     "custom_voice": "",           # name of a folder in %LOCALAPPDATA%\RealAssistant\voices
 }
 
@@ -89,6 +90,7 @@ REASONING_EFFORT = str(_SETTINGS.get("reasoning_effort", "low"))
 VOICE_NAME = str(_SETTINGS.get("voice_name", ""))
 VOICE_RATE = int(_SETTINGS.get("voice_rate", 0))
 MIC_DEVICE = _SETTINGS.get("mic_device")   # None = default mic, or an int index
+STT_MODEL = str(_SETTINGS.get("stt_model", "small.en"))
 CUSTOM_VOICE = str(_SETTINGS.get("custom_voice", ""))
 VOICE_MODELS_DIR = DATA_DIR / "voices"
 
