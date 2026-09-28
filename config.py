@@ -104,11 +104,12 @@ def _load_providers():
             "api_key_env": str(p.get("api_key_env") or "GROQ_API_KEY"),
             "model": str(p.get("model") or "openai/gpt-oss-20b"),
             "reasoning_effort": str(p.get("reasoning_effort") or ""),
+            "timeout": int(p.get("timeout") or 25),
         })
     if not out:
         out = [{"name": "default", "base_url": API_BASE_URL,
                 "api_key_env": API_KEY_ENV, "model": MODEL_NAME,
-                "reasoning_effort": REASONING_EFFORT}]
+                "reasoning_effort": REASONING_EFFORT, "timeout": 25}]
     return out
 
 

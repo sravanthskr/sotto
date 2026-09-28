@@ -30,6 +30,46 @@ _STATE = {
     "active": None,          # provider name that last worked
     "fail_until": {},        # name -> unix ts until which we skip it
 }
+_STATE_FILE = None
+
+
+def _state_path():
+    global _STATE_FILE
+    if _STATE_FILE is None:
+        try:
+            from config import DATA_DIR
+            _STATE_FILE = DATA_DIR / "provider_state.json"
+        except Exception:
+            _STATE_FILE = False
+    return _STATE_FILE or None
+
+
+def _load_state():
+    path = _state_path()
+    if not path or not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        _STATE["active"] = data.get("active")
+        now = time.time()
+        _STATE["fail_until"] = {k: v for k, v in (data.get("fail_until") or {}).items() if v > now}
+    except Exception:
+        pass
+
+
+def _save_state():
+    path = _state_path()
+    if not path:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"active": _STATE["active"],
+                                    "fail_until": _STATE["fail_until"]}, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+_load_state()
 
 # how long to bench a provider after a given failure
 _COOLDOWN = {"503": 120, "429": 60, "conn": 60}
@@ -69,11 +109,13 @@ def _bench(provider, error_text):
         _STATE["fail_until"][provider["name"]] = time.time() + wait
     if _STATE["active"] == provider["name"]:
         _STATE["active"] = None
+    _save_state()
 
 
 def _mark_ok(provider):
     _STATE["active"] = provider["name"]
     _STATE["fail_until"].pop(provider["name"], None)
+    _save_state()
 
 
 # ---------------------------------------------------------------------------
@@ -94,9 +136,11 @@ def _http_open(kwargs, provider):
     request = urllib.request.Request(
         url, data=json.dumps(kwargs).encode(), method="POST",
         headers={"Authorization": _AUTH_PREFIX + _key_for(provider),
-                 "Content-Type": "application/json"})
+                 "Content-Type": "application/json",
+                 "Accept": "application/json"})
     try:
-        return urllib.request.urlopen(request, timeout=180)
+        # a short timeout keeps a slow provider from making the user wait
+        return urllib.request.urlopen(request, timeout=int(provider.get("timeout") or 25))
     except urllib.error.HTTPError as e:
         detail = ""
         try:
@@ -104,6 +148,8 @@ def _http_open(kwargs, provider):
         except Exception:
             pass
         raise RuntimeError(f"Error code: {e.code} - {detail}")
+    except Exception as e:
+        raise RuntimeError(f"Error code: timeout - {e}")
 
 
 def _client_for(provider):
@@ -337,7 +383,13 @@ class _Resp:
 
 
 def _http_parse(resp):
-    data = json.loads(resp.read().decode("utf-8", "replace"))
+    raw = resp.read().decode("utf-8", "replace").strip()
+    if not raw:
+        raise RuntimeError("Error code: empty response from provider")
+    try:
+        data = json.loads(raw)
+    except Exception:
+        raise RuntimeError(f"Error code: unreadable response - {raw[:120]}")
     msg = (data.get("choices") or [{}])[0].get("message") or {}
     calls = None
     if msg.get("tool_calls"):
