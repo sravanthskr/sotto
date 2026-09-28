@@ -172,6 +172,16 @@
     toastTimer = setTimeout(() => $('#toast').classList.remove('show'), ms);
   }
 
+  /* --------------------------------------------------------- theme */
+  const SUN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"/></svg>';
+  const MOON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.5 8.5 0 1 0 10.2 10.2z"/></svg>';
+  function paintThemeIcon() {
+    const light = body.dataset.theme === 'light';
+    $('#btnTheme').innerHTML = light ? MOON : SUN;   // icon shows what you switch TO
+    $('#btnTheme').setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme');
+    $('#btnTheme').title = light ? 'Light theme on — click for dark' : 'Dark theme on — click for light';
+  }
+
   /* ------------------------------------------------------ exchange */
   function addTurn(said) {
     const el = document.createElement('article');
@@ -420,13 +430,20 @@
     $('#mic').addEventListener('click', toggleTalk);
     $('#btnHistory').addEventListener('click', () => { loadHistory(); openSheet('sheetHistory'); });
     $('#btnType').addEventListener('click', () => openSheet('sheetType'));
+    // dark is the default; only an explicit choice is kept (and an old accidental
+    // "light" from an earlier build can never stick again)
+    try { localStorage.removeItem('sotto-theme'); } catch {}
+    let savedTheme = null;
+    try { savedTheme = localStorage.getItem('sotto-theme-v2'); } catch {}
+    if (savedTheme === 'light' || savedTheme === 'dark') body.dataset.theme = savedTheme;
+    paintThemeIcon();
     $('#btnTheme').addEventListener('click', () => {
       body.dataset.theme = body.dataset.theme === 'light' ? 'dark' : 'light';
-      localStorage.setItem('sotto-theme', body.dataset.theme);
+      try { localStorage.setItem('sotto-theme-v2', body.dataset.theme); } catch {}
+      paintThemeIcon();
       sizeCanvas();
+      toast(body.dataset.theme === 'light' ? 'Light theme — morning paper' : 'Dark theme', 'THEME', 1800);
     });
-    const saved = localStorage.getItem('sotto-theme');
-    if (saved) body.dataset.theme = saved;
 
     $('#scrim').addEventListener('click', closeSheets);
     document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSheets));

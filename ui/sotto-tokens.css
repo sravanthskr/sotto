@@ -43,6 +43,9 @@
   --r-xl: 30px;   /* hero surfaces */
   --r-pill: 999px;
 
+  /* —— spacing —— */
+  --pad: 24px;   /* page gutter (32px at desktop widths) */
+
   /* —— motion (one personality: short, front-loaded, purposefully calm) —— */
   --dur-i: 90ms;    /* press feedback */
   --dur-f: 150ms;   /* toggles, hovers */

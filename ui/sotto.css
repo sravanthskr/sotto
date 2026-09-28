@@ -3,6 +3,8 @@
    ============================================================ */
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
+/* app shell: the window owns the layout — inner regions scroll, the page never does */
+html,body{height:100%;overflow:hidden}
 body{
   font-family:var(--font-ui);background:var(--bg);color:var(--ink);
   font-size:15px;line-height:1.55;letter-spacing:0;
@@ -17,9 +19,9 @@ button:focus-visible,input:focus-visible,[tabindex]:focus-visible{
 
 /* ---- layout ---- */
 .frame{
-  width:min(100%,430px);margin:0 auto;min-height:100dvh;
+  width:min(100%,430px);margin:0 auto;height:100dvh;min-height:0;
   display:flex;flex-direction:column;
-  padding:calc(env(safe-area-inset-top,0px) + 10px) var(--pad) calc(env(safe-area-inset-bottom,0px) + 14px);
+  padding:calc(env(safe-area-inset-top,0px) + 10px) var(--pad) calc(env(safe-area-inset-bottom,0px) + 18px);
 }
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 4px}
 .brand{display:flex;align-items:center;gap:10px;color:var(--ink)}
@@ -46,28 +48,28 @@ body[data-mode="exchange"] .presence-zone{padding:10px 0 6px;max-height:180px}
 body[data-mode="exchange"] .presence{width:132px}
 body[data-mode="exchange"] .lead{font-size:20px;opacity:0}
 .presence{
-  position:relative;width:min(70vw,300px);height:170px;
+  position:relative;z-index:0;width:min(70vw,300px);height:170px;
   transition:width var(--dur-s) var(--ease-soft),height var(--dur-s) var(--ease-soft);
   -webkit-tap-highlight-color:transparent;
 }
 body[data-mode="exchange"] .presence{height:96px}
 .presence .hit{position:absolute;inset:-16px;border-radius:999px}
-.presence .field{position:absolute;pointer-events:none;transition:opacity var(--dur-b) var(--ease)}
+.presence .field{position:absolute;z-index:-1;pointer-events:none;transition:opacity var(--dur-b) var(--ease)}
 .presence .f1{
   left:50%;top:50%;width:100%;height:120%;transform:translate(-50%,-50%) scale(var(--breath,1));
   background:radial-gradient(closest-side,var(--accent-glow) 0%,transparent 72%);
-  filter:blur(34px);opacity:calc(.5 + var(--lvl,0)*.24);
+  filter:blur(24px);opacity:calc(.5 + var(--lvl,0)*.24);
   animation:breath 6.4s var(--ease-soft) infinite alternate;
 }
 .presence .f2{
   left:50%;top:50%;width:58%;height:74%;transform:translate(-50%,-50%) scale(calc(var(--breath,1)*.98));
   background:radial-gradient(closest-side,var(--accent-strong) 0%,transparent 70%);
-  filter:blur(26px);opacity:calc(.32 + var(--lvl,0)*.3);
+  filter:blur(18px);opacity:calc(.32 + var(--lvl,0)*.3);
 }
 .presence .f3{
   left:50%;top:50%;width:30%;height:44%;transform:translate(-50%,-50%);
   background:radial-gradient(closest-side,var(--accent) 0%,transparent 68%);
-  filter:blur(20px);opacity:calc(.24 + var(--lvl,0)*.34);
+  filter:blur(14px);opacity:calc(.24 + var(--lvl,0)*.34);
 }
 @keyframes breath{from{--breath:.96}to{--breath:1.05}}
 @property --breath{syntax:'<number>';inherits:false;initial-value:1}
@@ -78,6 +80,8 @@ body[data-state="denied"] #thread, body[data-state="offline"] #thread{opacity:.2
 
 .lead{font-family:var(--font-voice);font-size:34px;font-weight:350;letter-spacing:-.015em;line-height:1.15;margin-top:14px;transition:font-size var(--dur-s) var(--ease-soft),opacity var(--dur-b) var(--ease)}
 .hint{margin-top:8px;font-size:12px;letter-spacing:.01em;color:var(--ink-3);transition:opacity var(--dur-b) var(--ease)}
+/* content always paints ABOVE the presence light field (glow must never cover text/buttons) */
+.lead,.hint,#suggestions{position:relative;z-index:1}
 body[data-state="listening"] .hint{color:var(--accent)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;transition:opacity var(--dur-b) var(--ease),max-height var(--dur-s) var(--ease-soft);overflow:hidden;max-height:80px}
 body[data-mode="exchange"] #suggestions{opacity:0;max-height:0;margin-top:0}
@@ -94,6 +98,7 @@ body[data-mode="exchange"] #suggestions{opacity:0;max-height:0;margin-top:0}
 
 /* ---- exchange ---- */
 .exchange{
+  position:relative;z-index:1;
   flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;
   display:flex;flex-direction:column;gap:26px;padding:12px 2px 24px;
   opacity:1;transition:opacity var(--dur-b) var(--ease);
@@ -154,7 +159,7 @@ body.sheet-open #suggestions{opacity:0;pointer-events:none}
 .btn-quiet:active{opacity:.7}
 .timer-num{font-family:var(--font-mono);font-size:44px;font-weight:400;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1}
 .timer-bar{height:2px;background:var(--surface-3);border-radius:2px;overflow:hidden}
-.timer-bar i{display:block;height:100%;width:100%;background:var(--accent);transform-origin:left center}
+.timer-bar i{display:block;height:100%;width:100%;background:var(--accent);transform:scaleX(0);transform-origin:left center}
 .timer-actions{display:flex;gap:8px}
 .wx-curve{width:100%;height:74px;display:block}
 .pill-meta{display:flex;flex-wrap:wrap;gap:8px}
@@ -205,7 +210,7 @@ body.sheet-open #suggestions{opacity:0;pointer-events:none}
 @keyframes sk{0%,100%{opacity:.55}50%{opacity:1}}
 
 /* ---- dock ---- */
-.dock{flex:none;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 0 4px;position:relative}
+.dock{flex:none;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 0 4px;position:relative;z-index:2}
 .mic{
   width:64px;height:64px;border-radius:999px;display:grid;place-items:center;position:relative;
   background:var(--surface);border:1px solid var(--line);color:var(--ink);
@@ -218,11 +223,11 @@ body[data-state="listening"] .mic{border-color:transparent;background:var(--acce
 body[data-state="listening"] .mic svg{opacity:0}
 .mic .stop{position:absolute;width:14px;height:14px;border-radius:4px;background:var(--accent-strong);opacity:0;transition:opacity var(--dur-f) var(--ease)}
 body[data-state="listening"] .mic .stop{opacity:1}
-.dock-hint{position:absolute;right:0;bottom:20px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;color:var(--ink-3);opacity:.7}
+.dock-hint{position:absolute;right:10px;bottom:22px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;color:var(--ink-3);opacity:.7;pointer-events:none}
 
 /* ---- sheets ---- */
-.scrim{position:fixed;inset:0;background:rgba(5,7,9,.58);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);opacity:0;pointer-events:none;transition:opacity var(--dur-b) var(--ease);z-index:40}
-[data-theme="light"] .scrim{background:rgba(28,32,36,.34)}
+.scrim{position:fixed;inset:0;background:rgba(5,7,9,.62);opacity:0;pointer-events:none;transition:opacity var(--dur-b) var(--ease);z-index:40}
+[data-theme="light"] .scrim{background:rgba(28,32,36,.38)}
 .scrim.show{opacity:1;pointer-events:auto}
 .sheet{
   position:fixed;left:50%;bottom:0;transform:translate(-50%,105%);width:min(100%,520px);
@@ -276,7 +281,7 @@ body[data-state="listening"] .mic .stop{opacity:1}
 .rowbetween{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
 
 /* ---- responsive ---- */
-@media (min-width:768px){
+@media (min-width:768px) and (min-height:640px){
   :root{--pad:32px}
   .frame{width:min(100%,760px)}
   .stage{flex-direction:row;gap:44px;align-items:center}
@@ -287,7 +292,7 @@ body[data-state="listening"] .mic .stop{opacity:1}
   body[data-mode="home"] .exchange{display:none}
   .dock{justify-content:flex-start;padding-left:6px}
 }
-@media (min-width:1024px){
+@media (min-width:1024px) and (min-height:700px){
   .frame{width:min(100%,1100px);padding-top:calc(env(safe-area-inset-top,0px) + 28px)}
   .presence-zone{flex:0 0 46%}
   .lead{font-size:40px}
@@ -295,6 +300,30 @@ body[data-state="listening"] .mic .stop{opacity:1}
 }
 @media (hover:none){
   .code-block .copy{opacity:.85}
+}
+/* light theme legibility: white surfaces need a visible edge, otherwise they read as "washed out"
+   (white pills on near-white paper look like blobs covering the buttons) */
+[data-theme="light"] .chip{border-color:var(--line-strong)}
+[data-theme="light"] .mic,[data-theme="light"] .btn-silent,[data-theme="light"] .module,
+[data-theme="light"] .notice,[data-theme="light"] .hsearch,[data-theme="light"] .typewrap{border-color:var(--line-strong)}
+/* short windows (small laptops, resized windows): compact the hero — nothing may clip */
+@media (max-height:720px){
+  .presence-zone{padding:8px 0 4px;max-height:none}
+  .presence{height:118px}
+  body[data-mode="exchange"] .presence{height:78px}
+  .lead{font-size:26px;margin-top:8px}
+  .hint{margin-top:4px}
+  .chips{margin-top:12px;gap:7px}
+  .chip{padding:7px 12px;font-size:12px}
+  .dock{padding:8px 0 2px}
+  .mic{width:56px;height:56px}
+  .exchange{gap:20px;padding:8px 2px 12px}
+}
+@media (max-height:560px){
+  .presence{height:96px}
+  .lead{font-size:22px}
+  .presence-zone{padding:4px 0 2px}
+  .chip{padding:6px 11px}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}

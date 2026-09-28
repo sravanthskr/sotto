@@ -19,13 +19,13 @@ INDEX = Path(__file__).parent / "ui" / "index.html"
 def main():
     api = Api()
     window = webview.create_window(
-        "RealAssistant",
+        "Sotto",
         str(INDEX),
         js_api=api,
         width=1180,
         height=780,
         min_size=(900, 600),
-        background_color="#f5f5f7",
+        background_color="#0C0E11",
     )
     api.start()
     webview.start()
