@@ -8,3 +8,6 @@ venv/
 build/
 dist/
 *.spec
+ui/_demo*.html
+_shots/
+ui/ui_app.py
