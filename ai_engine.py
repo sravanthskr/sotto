@@ -62,7 +62,12 @@ def _create(**kwargs):
             if "reasoning_effort" in text and "reasoning_effort" in kwargs:
                 kwargs.pop("reasoning_effort", None)   # model doesn't support it
                 continue
-            transient = any(t in text for t in ("429", "rate", "503", "502", "timeout",
+            if "429" in text or "rate limit" in text or "resource_exhausted" in text:
+                if attempt < 2:
+                    time.sleep(6 * (attempt + 1))       # per-minute limits need real waiting
+                    continue
+                break
+            transient = any(t in text for t in ("503", "502", "timeout",
                                                 "temporarily", "overloaded"))
             if transient and attempt < 2:
                 time.sleep(1.5 * (attempt + 1))
@@ -181,8 +186,10 @@ def _friendly(err):
                 "Run `run.bat api` to test.")
     if "401" in text or "invalid api key" in low or "unauthorized" in low:
         return "The API key looks wrong or expired - check GROQ_API_KEY in .env."
-    if "429" in text or "rate limit" in low:
-        return "Rate limited by the assistant service - wait a moment and try again."
+    if "429" in text or "rate limit" in low or "resource_exhausted" in low:
+        return ("The model provider is rate-limiting this key (its per-minute request limit) - "
+                "this is NOT a credits problem. Wait about a minute, then try again; "
+                "avoid firing several requests back to back.")
     return text
 
 

@@ -21,7 +21,7 @@ USER_NAME = ""                 # leave blank; it learns this. Set it to force it
 RECENT_TURNS_KEPT = 8          # how many recent turns stay verbatim in context
 SUMMARIZE_WHEN_TURNS_OVER = 12 # once we exceed this, the oldest turns get compressed
 MAX_TOOL_ROUNDS = 8            # max tool-call rounds inside a single user turn (multi-step tasks)
-LEARN_EVERY_N_TURNS = 1        # how often to mine the chat for durable facts (1 = every turn)
+LEARN_EVERY_N_TURNS = 4        # mine the chat for facts every N turns (saves API calls)
 
 # ---------------------------------------------------------------------------
 # Storage (100% local - nothing here ever leaves the machine)

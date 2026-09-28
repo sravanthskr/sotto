@@ -15,7 +15,7 @@ from datetime import datetime
 
 from config import (
     SYSTEM_PROMPT, RECENT_TURNS_KEPT, SUMMARIZE_WHEN_TURNS_OVER, MAX_TOOL_ROUNDS,
-    PROACTIVE, PROACTIVE_INTERVAL, CONFIRM_MODE,
+    PROACTIVE, PROACTIVE_INTERVAL, CONFIRM_MODE, LEARN_EVERY_N_TURNS,
 )
 import ai_engine
 import tools
@@ -56,6 +56,7 @@ class Assistant:
         )
 
         self.turns = []
+        self._turn_count = 0
 
     # -- lifecycle --------------------------------------------------------
     def start(self):
@@ -177,7 +178,9 @@ class Assistant:
         self._status("idle")
         self.turns.append(group)
         self._compress()
-        self.learner.learn_async(group, on_new=self._handle_learned)
+        self._turn_count += 1
+        if self._turn_count % max(1, LEARN_EVERY_N_TURNS) == 0:
+            self.learner.learn_async(group, on_new=self._handle_learned)
         return "".join(spoken).strip()
 
     def _compress(self):
