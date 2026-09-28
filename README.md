@@ -131,13 +131,20 @@ real desktop widgets and a true custom-painted visualiser (QPainter at 60 fps).
 .\run.bat ui          # or: python app_qt.py
 ```
 
-- A **glowing orb** with concentric listening rings, plus a **live 44-bar waveform**.
-  The glow, rings and bars all react to your voice while listening, move while thinking,
-  and pulse while speaking.
-- **Tap the orb** (or the button) to talk; it stops itself after ~1.2 s of silence.
-- Your words and the reply appear as short captions, with a **Recent** card for history.
-- Footer: **Type** (keyboard fallback), **History**, **Settings** (spoken voice + service check).
-- Preview render: `preview_ui.png` (captured from the real app).
+- A **glowing orb with blinking eyes** and concentric rings, plus a **live 44-bar waveform**.
+  Four states: idle (breathing), listening (reacts to your voice), thinking (swirling ring),
+  speaking (pulses).
+- **Sidebar navigation**: Home / Tasks / Insights / Settings, with a clear active state.
+- **Chat transcript** with bubbles (streaming text) and **quick-action chips** when idle.
+- **Floating glass input bar**: attach (placeholder), text field, gradient mic, send.
+- **Tasks** page shows your reminders; **Insights** shows real action stats from the audit log
+  (no fake business charts).
+- **Settings**: spoken voice, provider/model, service check.
+- **Compact mode** (button in the sidebar), `Ctrl+Space` to show/hide, hold `Space` to talk.
+- Preview render: `preview_aura.png` (captured from the real app).
+
+Not included on purpose: sound-effect chimes (they get annoying), file attachments, and
+live partial transcription (we transcribe once you pause).
 
 `python app_qt.py --shot preview.png` renders a screenshot without a screen (useful for review).
 
