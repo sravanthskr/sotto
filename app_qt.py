@@ -70,7 +70,12 @@ def _mix(c1: QColor, c2: QColor, t):
 
 # ---------------------------------------------------------------- background
 class Background(QWidget):
-    """Gradient base + a few huge soft colour orbs (the 'blurred blobs' of the spec)."""
+    """Gradient base + large soft colour orbs that slowly drift (ambient life)."""
+
+    def __init__(self, drift=False):
+        super().__init__()
+        self.drift = drift
+        self.phase = 0.0
 
     def paintEvent(self, _e):
         p = QPainter(self)
@@ -80,10 +85,16 @@ class Background(QWidget):
         g.setColorAt(0, BASE_TOP)
         g.setColorAt(1, BASE_BOTTOM)
         p.fillRect(self.rect(), QBrush(g))
-        for cx, cy, r, col, alpha in (
-                (w * 0.22, h * 0.18, min(w, h) * 0.55, VIOLET, 0.20),
-                (w * 0.85, h * 0.30, min(w, h) * 0.50, BLUE, 0.16),
-                (w * 0.60, h * 0.95, min(w, h) * 0.55, PINK, 0.12)):
+        ph = self.phase if self.drift else 0.0
+        spots = (
+            (w * (0.22 + 0.05 * math.sin(ph * 0.6)), h * (0.18 + 0.04 * math.cos(ph * 0.5)),
+             min(w, h) * 0.55, VIOLET, 0.20),
+            (w * (0.85 + 0.04 * math.cos(ph * 0.45)), h * (0.30 + 0.05 * math.sin(ph * 0.7)),
+             min(w, h) * 0.50, BLUE, 0.16),
+            (w * (0.60 + 0.05 * math.sin(ph * 0.35)), h * (0.95 + 0.03 * math.cos(ph * 0.6)),
+             min(w, h) * 0.55, PINK, 0.12),
+        )
+        for cx, cy, r, col, alpha in spots:
             grad = QRadialGradient(QPointF(cx, cy), r)
             c = QColor(col)
             c.setAlphaF(alpha)
@@ -352,17 +363,31 @@ class IconButton(QPushButton):
         super().__init__()
         self.kind = kind
         self.accent = accent
+        self.pulse = False
+        self._t = 0.0
         self.setFixedSize(size, size)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(tooltip)
         self.setStyleSheet("QPushButton{background:transparent;border:0;}")
+
+    def set_pulse(self, on):
+        self.pulse = bool(on)
+        self.update()
 
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         w, h = self.width(), self.height()
         s = min(w, h) * 0.5
+        cx, cy = w / 2, h / 2
         if self.accent:
+            if self.pulse:
+                self._t = (self._t + 0.05) % 1.0
+                ring = QColor(VIOLET)
+                ring.setAlphaF(max(0.0, 0.55 * (1 - self._t)))
+                p.setPen(QPen(ring, 2)); p.setBrush(Qt.NoBrush)
+                rr = (w / 2.0) * (1.0 + self._t * 0.55)
+                p.drawEllipse(QPointF(cx, cy), rr, rr)
             g = QLinearGradient(0, 0, w, h)
             g.setColorAt(0, VIOLET); g.setColorAt(1, BLUE)
             p.setBrush(QBrush(g)); p.setPen(Qt.NoPen)
@@ -395,6 +420,8 @@ class Window(QMainWindow):
     level_sig = Signal(float)
     stream_sig = Signal(str)
     history_sig = Signal(str, str)
+    toast_sig = Signal(str)
+    retry_sig = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -415,12 +442,15 @@ class Window(QMainWindow):
         self.level_sig.connect(self._set_level)
         self.stream_sig.connect(self._stream)
         self.history_sig.connect(self._log_history)
+        self.toast_sig.connect(self.show_toast)
+        self.retry_sig.connect(self._schedule_retry)
         QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._toggle_visible)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_menu)
 
     # ------------------------------------------------------ build
     def _build(self):
-        stage = Background()
+        stage = Background(drift=True)
+        self._stage = stage
         self.setCentralWidget(stage)
         root = QVBoxLayout(stage)
         root.setContentsMargins(26, 18, 26, 18)
@@ -458,6 +488,16 @@ class Window(QMainWindow):
         self.chips_row.addStretch(1)
         root.addLayout(self.chips_row)
 
+        # toast (human-readable errors - never raw JSON)
+        self.toast = QLabel("")
+        self.toast.setVisible(False)
+        self.toast.setAlignment(Qt.AlignCenter)
+        self.toast.setWordWrap(True)
+        self.toast.setStyleSheet(
+            "background: rgba(236,72,153,0.16); border:1px solid rgba(236,72,153,0.38);"
+            "border-radius:16px; padding:11px 20px; color:#FFE9F4; font-size:13px;")
+        root.addWidget(self.toast, 0, Qt.AlignHCenter)
+
         # floating input pill
         self.bar = QFrame(); self.bar.setStyleSheet(f"QFrame{{{GLASS} border-radius:28px;}}")
         bl = QHBoxLayout(self.bar); bl.setContentsMargins(14, 8, 14, 8); bl.setSpacing(10)
@@ -484,6 +524,10 @@ class Window(QMainWindow):
         hint.setAlignment(Qt.AlignCenter)
         hint.setStyleSheet("color:#CFCFD8;font-size:12.5px;")
         root.addWidget(hint)
+
+        drift = QTimer(self)
+        drift.timeout.connect(self._drift)
+        drift.start(50)
         self._set_visibility("idle")
 
     def _home(self):
@@ -592,6 +636,51 @@ class Window(QMainWindow):
         lay.addWidget(note)
         return page
 
+    # ------------------------------------------------------ toast / errors
+    def show_toast(self, text, ms=6500):
+        self.toast.setText(text)
+        self.toast.setVisible(True)
+        if getattr(self, "_toast_timer", None) is None:
+            self._toast_timer = QTimer(self)
+            self._toast_timer.setSingleShot(True)
+            self._toast_timer.timeout.connect(lambda: self.toast.setVisible(False))
+        self._toast_timer.start(ms)
+
+    @staticmethod
+    def _human_error(err):
+        text = str(err).lower()
+        if "every provider failed" in text or "no provider has an api key" in text:
+            return "Every AI provider is busy right now — I'll retry in a moment."
+        if "503" in text or "high demand" in text:
+            return "That model's overloaded — switching to another one…"
+        if "429" in text or "quota" in text or "rate limit" in text:
+            return "Hit a rate limit — trying a different model…"
+        if "microphone" in text or "input device" in text:
+            return "I can't reach the microphone — try  run.bat mic."
+        if "timeout" in text:
+            return "That took too long — trying again with a faster model…"
+        return "Something went wrong on that one — say it again?"
+
+    # ------------------------------------------------------ drift
+    def _drift(self):
+        self._stage.phase += 0.01
+        self._stage.update()
+
+    # ------------------------------------------------------ fades
+    def _fade(self, widget, target, ms=300):
+        from PySide6.QtCore import QPropertyAnimation
+        fx = widget.graphicsEffect()
+        if not isinstance(fx, QGraphicsOpacityEffect):
+            fx = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(fx)
+            fx.setOpacity(1.0)
+        anim = QPropertyAnimation(fx, b"opacity", widget)
+        anim.setDuration(ms)
+        anim.setStartValue(float(fx.opacity()))
+        anim.setEndValue(float(target))
+        anim.start(QPropertyAnimation.DeleteWhenStopped)
+        widget._fade_anim = anim
+
     # ------------------------------------------------------ menu / pages
     def _open_menu(self):
         menu = QMenu(self)
@@ -638,8 +727,17 @@ class Window(QMainWindow):
         self.transcript.setVisible(listening and bool(hint))
         self.wave.setVisible(mode in ("listening", "speaking", "processing"))
         self.reply_label.setVisible(speaking or bool(self.reply_label.text()))
-        self.bar.setVisible(not listening)
-        self.state_label.setVisible(not listening)
+
+        # voice dominates: instead of hiding, everything else fades back
+        self._fade(self.bar, 0.10 if listening else 1.0, 350)
+        self._fade(self.state_label, 0.12 if listening else 1.0, 350)
+        for i in range(self.chips_row.count()):
+            w = self.chips_row.itemAt(i).widget()
+            if isinstance(w, Pill):
+                w.setVisible(True)
+                target = 1.0 if (mode == "idle" and self.history) else 0.08
+                QTimer.singleShot(i * 70, lambda w=w, t=target: self._fade(w, t, 420))
+
         if listening:
             self.state_label.setText("")
         elif processing:
@@ -648,16 +746,6 @@ class Window(QMainWindow):
             self.state_label.setText("")
         else:
             self.state_label.setText(GREETINGS[int(self.orb.phase) % len(GREETINGS)])
-        if not (listening or processing):
-            pass
-        for i in range(self.chips_row.count()):
-            w = self.chips_row.itemAt(i).widget()
-            if isinstance(w, Pill):
-                show = mode == "idle" and bool(self.history)
-                w.setVisible(show)
-                if show and w.graphicsEffect().opacity() < 0.05:
-                    w.fade_in(120 * i)
-        self._apply_menu_cursor()
 
     def _apply_menu_cursor(self):
         pass
@@ -674,6 +762,7 @@ class Window(QMainWindow):
         threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
 
     def _run_turn(self, text):
+        self._last_text = text
         self.history_sig.emit("You", text)
         self._spoken = []
         self.mode_sig.emit("processing", "")
@@ -682,8 +771,10 @@ class Window(QMainWindow):
         except Exception as e:
             self.mode_sig.emit("idle", "")
             self.transcript_sig.emit("")
-            self.reply_label.setText(f"⚠ {str(e)[:180]}")
+            self.toast_sig.emit(self._human_error(e))
+            self.retry_sig.emit(text)
             return
+        self._retried = False
         reply = (reply or "").strip()
         if not reply:
             self.mode_sig.emit("idle", "")
@@ -695,6 +786,13 @@ class Window(QMainWindow):
         except Exception:
             pass
         self.mode_sig.emit("idle", "")
+
+    def _schedule_retry(self, text):
+        if getattr(self, "_retried", False) or not text:
+            return
+        self._retried = True
+        self.show_toast("All providers were busy — retrying in 4 s…", 5000)
+        QTimer.singleShot(4000, lambda: self._send_text(text))
 
     def _log_history(self, who, text):
         self.history.append((who, text))
@@ -777,17 +875,12 @@ class Window(QMainWindow):
         self.mode = mode
         self.orb.mode = mode
         self.wave.mode = mode
+        self.mic_btn.set_pulse(mode == "listening")
         if mode == "listening":
             self.transcript_sig.emit(hint or "listening…")
         if mode in ("listening", "processing"):
             self.reply_label.setText("")
         self._set_visibility(mode, hint)
-        if mode == "idle" and self.history:
-            for i in range(self.chips_row.count()):
-                w = self.chips_row.itemAt(i).widget()
-                if isinstance(w, Pill):
-                    w.setVisible(True)
-                    w.fade_in(140 * i)
 
     def _toggle_visible(self):
         self.hide() if self.isVisible() else self.show()
@@ -823,6 +916,7 @@ def main():
 def _prep(win, mode="listening"):
     win.orb.mode = mode; win.wave.mode = mode
     win.orb.level = 0.55; win.wave.level = 0.55
+    win.history = [("You", "open notepad"), ("RA", "Notepad's open — anything else?")]
     win.transcript_sig.emit("“open notepad”")
     win.reply_label.setText("")
     win.history_sig.emit("You", "open notepad")
@@ -833,7 +927,6 @@ def _prep(win, mode="listening"):
         for i in range(win.chips_row.count()):
             w = win.chips_row.itemAt(i).widget()
             if isinstance(w, Pill):
-                w.setVisible(True)
                 w.graphicsEffect().setOpacity(1.0)
 
 
