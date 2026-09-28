@@ -90,7 +90,29 @@ DENIED_TOOLS = {str(t) for t in _SETTINGS.get("denied_tools", [])}
 PROACTIVE = bool(_SETTINGS.get("proactive", True))
 PROACTIVE_INTERVAL = int(_SETTINGS.get("proactive_interval_seconds", 300))
 CONFIRM_MODE = str(_SETTINGS.get("confirm_mode", "dialog"))
-REASONING_EFFORT = str(_SETTINGS.get("reasoning_effort", "low"))
+REASONING_EFFORT = str(_SETTINGS.get("reasoning_effort", ""))
+
+
+def _load_providers():
+    """The provider chain: settings.json "providers" list, or the single legacy triple."""
+    raw = _SETTINGS.get("providers") or []
+    out = []
+    for p in raw:
+        out.append({
+            "name": str(p.get("name") or "provider"),
+            "base_url": str(p.get("base_url") or ""),
+            "api_key_env": str(p.get("api_key_env") or "GROQ_API_KEY"),
+            "model": str(p.get("model") or "openai/gpt-oss-20b"),
+            "reasoning_effort": str(p.get("reasoning_effort") or ""),
+        })
+    if not out:
+        out = [{"name": "default", "base_url": API_BASE_URL,
+                "api_key_env": API_KEY_ENV, "model": MODEL_NAME,
+                "reasoning_effort": REASONING_EFFORT}]
+    return out
+
+
+PROVIDERS = _load_providers()
 VOICE_NAME = str(_SETTINGS.get("voice_name", ""))
 VOICE_RATE = int(_SETTINGS.get("voice_rate", 0))
 MIC_DEVICE = _SETTINGS.get("mic_device")   # None = default mic, or an int index
