@@ -1,13 +1,15 @@
 """
 app_qt.py - RealAssistant desktop app (PySide6 / Qt, pure Python).
 
-Redesigned to the "Aura" spec: dark glassmorphism, neon violet->blue glow, an orb with
-blinking eyes, a live waveform, a floating input bar, sidebar navigation (Home / Tasks /
-Insights / Settings), quick-action chips and a compact mode.
+Voice-first redesign per the design review:
+  * layered, "alive" orb (core + inner glow + 3 auras + glowing eyes + specular)
+  * fluid gradient waveform (smooth curve, not bars), one rotating particle ring when thinking
+  * state-driven visibility - voice dominates; chat history is hidden by default
+  * glass surfaces everywhere, floating input pill, staggered quick-action pills
 
-    .\\run.bat ui                       (or: python app_qt.py)
-    python app_qt.py --shot out.png     # offscreen render
-    python app_qt.py --shot-live out.png# real-window render (fonts included)
+    .\\run.bat ui                        (or: python app_qt.py)
+    python app_qt.py --shot out.png      # offscreen render
+    python app_qt.py --shot-live out.png # real-window render (fonts included)
 """
 
 import math
@@ -15,12 +17,12 @@ import sys
 import threading
 import time
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QKeySequence, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient, QShortcut)
-from PySide6.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-                               QMainWindow, QPushButton, QScrollArea, QSizePolicy, QStackedWidget,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFrame, QGraphicsOpacityEffect,
+                               QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QPushButton,
+                               QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
 
 import tools
 import voice
@@ -28,76 +30,328 @@ from audio import MicStream
 from config import API_BASE_URL, MODEL_NAME
 from core import Assistant
 
-# ---------------------------------------------------------------- theme (Aura spec)
-BASE = "#09090B"
-SURFACE = "#18181B"
-VIOLET = "#8B5CF6"
-BLUE = "#3B82F6"
-PINK = "#EC4899"
+# ---------------------------------------------------------------- theme
+BASE_TOP = QColor("#0F0F1A")
+BASE_BOTTOM = QColor("#0A0A12")
+VIOLET = QColor("#8B5CF6")
+DEEP_VIOLET = QColor("#6D28D9")
+BLUE = QColor("#3B82F6")
+CYAN = QColor("#22D3EE")
+PINK = QColor("#EC4899")
 TEXT = "#FAFAFA"
 MUTED = "#A1A1AA"
-BORDER = "rgba(255,255,255,0.08)"
+BORDER = "rgba(255,255,255,0.10)"
 PROVIDER = "gemini" if API_BASE_URL else "groq"
 
 GLASS = ("background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-         " stop:0 rgba(255,255,255,0.07), stop:0.35 rgba(24,24,27,0.72),"
-         " stop:1 rgba(24,24,27,0.88));"
-         f" border:1px solid rgba(255,255,255,0.10); border-radius:16px;")
-PILL = ("background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-        " stop:0 rgba(255,255,255,0.06), stop:1 rgba(24,24,27,0.80));"
-        f" border:1px solid rgba(255,255,255,0.10); border-radius:999px;")
-BG_GLOW = ("qradialgradient(cx:0.5, cy:0.22, radius:0.95,"
-           " stop:0 rgba(139,92,246,0.20), stop:0.45 rgba(9,9,11,0.98),"
-           " stop:1 #09090B)")
+         " stop:0 rgba(255,255,255,0.07), stop:0.4 rgba(24,24,32,0.72),"
+         " stop:1 rgba(20,20,28,0.88));"
+         " border:1px solid rgba(255,255,255,0.10); border-radius:24px;")
+PILL = ("background: rgba(139,92,246,0.16); border:1px solid rgba(139,92,246,0.30);"
+        " border-radius:20px;")
+PILL_HOVER = ("background: rgba(139,92,246,0.28); border:1px solid rgba(139,92,246,0.55);"
+              " border-radius:999px;")
 
-CHIPS = ["Summarise screen", "System status", "Remind me", "Open notepad"]
+CHIPS = ["Open notepad", "Remind me in 10 minutes", "What's my system status?",
+         "Summarise my screen"]
+GREETINGS = ["Hey, what's up?", "What's on your mind?", "I'm here — say the word."]
 
 
-def _icon_path(kind, size=22):
-    """Tiny monoline icons drawn as paths (no emoji, no external assets)."""
-    p = QPainterPath()
-    s = size
-    if kind == "home":
-        p.moveTo(s * 0.14, s * 0.52); p.lineTo(s * 0.50, s * 0.20)
-        p.lineTo(s * 0.86, s * 0.52); p.lineTo(s * 0.86, s * 0.86)
-        p.lineTo(s * 0.14, s * 0.86); p.closeSubpath()
-    elif kind == "tasks":
-        p.addRoundedRect(QRectF(s * 0.20, s * 0.14, s * 0.60, s * 0.72), 4, 4)
-        p.moveTo(s * 0.34, s * 0.40); p.lineTo(s * 0.44, s * 0.50); p.lineTo(s * 0.66, s * 0.30)
-    elif kind == "insights":
-        for i, x in enumerate((0.24, 0.46, 0.68)):
-            h = (0.30, 0.52, 0.70)[i]
-            p.addRoundedRect(QRectF(s * x, s * (0.86 - h), s * 0.14, s * h), 3, 3)
-    elif kind == "gear":
-        p.addEllipse(QPointF(s / 2, s / 2), s * 0.20, s * 0.20)
-        for i in range(8):
-            a = i * math.pi / 4
-            x1, y1 = s / 2 + math.cos(a) * s * 0.28, s / 2 + math.sin(a) * s * 0.28
-            x2, y2 = s / 2 + math.cos(a) * s * 0.40, s / 2 + math.sin(a) * s * 0.40
-            p.moveTo(x1, y1); p.lineTo(x2, y2)
-    elif kind == "mic":
-        p.addRoundedRect(QRectF(s * 0.36, s * 0.14, s * 0.28, s * 0.42), s * 0.14, s * 0.14)
-        p.moveTo(s * 0.24, s * 0.50)
-        p.arcTo(QRectF(s * 0.24, s * 0.30, s * 0.52, s * 0.42), 180, 180)
-        p.moveTo(s * 0.50, s * 0.72); p.lineTo(s * 0.50, s * 0.86)
-    elif kind == "send":
-        p.moveTo(s * 0.16, s * 0.50); p.lineTo(s * 0.86, s * 0.22)
-        p.lineTo(s * 0.56, s * 0.86); p.lineTo(s * 0.44, s * 0.58); p.closeSubpath()
-    elif kind == "plus":
-        p.moveTo(s * 0.50, s * 0.24); p.lineTo(s * 0.50, s * 0.76)
-        p.moveTo(s * 0.24, s * 0.50); p.lineTo(s * 0.76, s * 0.50)
-    elif kind == "shrink":
-        p.moveTo(s * 0.24, s * 0.40); p.lineTo(s * 0.76, s * 0.40)
-        p.moveTo(s * 0.24, s * 0.60); p.lineTo(s * 0.76, s * 0.60)
-    return p
+def _lerp(a, b, t):
+    return a + (b - a) * max(0.0, min(1.0, t))
+
+
+def _mix(c1: QColor, c2: QColor, t):
+    t = max(0.0, min(1.0, t))
+    return QColor(int(_lerp(c1.red(), c2.red(), t)),
+                  int(_lerp(c1.green(), c2.green(), t)),
+                  int(_lerp(c1.blue(), c2.blue(), t)))
+
+
+# ---------------------------------------------------------------- background
+class Background(QWidget):
+    """Gradient base + a few huge soft colour orbs (the 'blurred blobs' of the spec)."""
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        g = QLinearGradient(0, 0, 0, h)
+        g.setColorAt(0, BASE_TOP)
+        g.setColorAt(1, BASE_BOTTOM)
+        p.fillRect(self.rect(), QBrush(g))
+        for cx, cy, r, col, alpha in (
+                (w * 0.22, h * 0.18, min(w, h) * 0.55, VIOLET, 0.20),
+                (w * 0.85, h * 0.30, min(w, h) * 0.50, BLUE, 0.16),
+                (w * 0.60, h * 0.95, min(w, h) * 0.55, PINK, 0.12)):
+            grad = QRadialGradient(QPointF(cx, cy), r)
+            c = QColor(col)
+            c.setAlphaF(alpha)
+            grad.setColorAt(0, c)
+            edge = QColor(col)
+            edge.setAlphaF(0.0)
+            grad.setColorAt(1, edge)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(grad))
+            p.drawEllipse(QPointF(cx, cy), r, r)
+        p.end()
+
+
+# ---------------------------------------------------------------- orb
+class Orb(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.mode = "idle"
+        self.level = 0.0
+        self.phase = 0.0
+        self.blink = 0.0
+        self.grow = 1.0
+        self.setMinimumSize(280, 280)
+        t = QTimer(self); t.timeout.connect(self._tick); t.start(16)
+
+    def _tick(self):
+        self.phase += 0.045
+        beat = self.phase % 3.6
+        self.blink = max(0.0, 1.0 - abs(beat - 0.2) / 0.14)
+        target = {"idle": 1.0, "listening": 1.45, "processing": 1.20, "speaking": 1.32}[self.mode]
+        self.grow = _lerp(self.grow, target, 0.06)
+        self.update()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        cx, cy = w / 2.0, h * 0.52
+        base = min(w, h) * 0.15 * self.grow
+
+        live = self.level if self.mode == "listening" else (
+            0.45 + 0.30 * (math.sin(self.phase * 1.7) + 1) / 2 if self.mode == "speaking"
+            else (0.30 if self.mode == "processing" else 0.06 + 0.03 * math.sin(self.phase * 0.5)))
+
+        # colour identity per state (thinking swirls violet -> pink -> blue)
+        if self.mode == "processing":
+            t = (math.sin(self.phase * 1.1) + 1) / 2
+            c1, c2 = _mix(DEEP_VIOLET, PINK, t), _mix(VIOLET, CYAN, t)
+        elif self.mode == "listening":
+            c1, c2 = _mix(DEEP_VIOLET, BLUE, 0.7), CYAN
+        else:
+            c1, c2 = DEEP_VIOLET, BLUE
+
+        # 1) outer aura - three rings, ripples while listening
+        ring_specs = ((1.00, 0.40, c1), (1.15, 0.20, c2), (1.30, 0.10, PINK))
+        for mult, alpha, col in ring_specs:
+            if self.mode == "listening":
+                for k in range(3):
+                    prog = ((self.phase * 0.35 + k / 3.0) % 1.0)
+                    r = base * (1.05 + prog * 0.55)
+                    c = QColor(col)
+                    c.setAlphaF(max(0.0, (1 - prog) * (0.25 + live * 0.45)))
+                    p.setPen(QPen(c, 1.6))
+                    p.setBrush(Qt.NoBrush)
+                    p.drawEllipse(QPointF(cx, cy), r, r)
+            else:
+                c = QColor(col)
+                c.setAlphaF(alpha * (0.6 + live * 0.8))
+                p.setPen(QPen(c, 1.4))
+                p.setBrush(Qt.NoBrush)
+                p.drawEllipse(QPointF(cx, cy), base * mult, base * mult)
+
+        # 2) light bleed - a soft radial falloff, never a flat disc
+        glow_r = base * 2.5
+        gc = QColor(c2 if self.mode == "listening" else c1)
+        gc.setAlphaF(0.30 + live * 0.30)
+        gmid = QColor(gc); gmid.setAlphaF(0.10)
+        gedge = QColor(gc); gedge.setAlphaF(0.0)
+        gg = QRadialGradient(QPointF(cx, cy), glow_r)
+        gg.setColorAt(0.0, gc); gg.setColorAt(0.55, gmid); gg.setColorAt(1.0, gedge)
+        p.setPen(Qt.NoPen); p.setBrush(QBrush(gg))
+        p.drawEllipse(QPointF(cx, cy), glow_r, glow_r)
+
+        # 3) core sphere (+ inner shadow bottom-right for depth)
+        grad = QRadialGradient(QPointF(cx - base * 0.32, cy - base * 0.36), base * 1.9)
+        grad.setColorAt(0.0, _mix(QColor("#E9E4FF"), c1, 0.30))
+        grad.setColorAt(0.50, c1)
+        grad.setColorAt(1.0, _mix(c2, QColor("#0B0B18"), 0.45))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(grad))
+        p.drawEllipse(QPointF(cx, cy), base, base)
+        shadow = QRadialGradient(QPointF(cx + base * 0.40, cy + base * 0.44), base * 1.25)
+        s0 = QColor(0, 0, 0); s0.setAlphaF(0.0)
+        s1 = QColor(0, 0, 0); s1.setAlphaF(0.30)
+        shadow.setColorAt(0.45, s0); shadow.setColorAt(1.0, s1)
+        p.setBrush(QBrush(shadow))
+        p.drawEllipse(QPointF(cx, cy), base, base)
+
+        # rim light (upper-left arc) - makes it read as lit glass
+        rim = QColor(255, 255, 255); rim.setAlphaF(0.28 + live * 0.18)
+        pen = QPen(rim, 2.0); pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        p.drawArc(QRectF(cx - base, cy - base, base * 2, base * 2), 100 * 16, 130 * 16)
+
+        # specular highlight - top-left of the sphere, clear of the eyes
+        spec = QColor(255, 255, 255); spec.setAlphaF(0.30)
+        p.setPen(Qt.NoPen); p.setBrush(QBrush(spec))
+        p.drawEllipse(QRectF(cx - base * 0.58, cy - base * 0.66, base * 0.46, base * 0.26))
+        spec2 = QColor(255, 255, 255); spec2.setAlphaF(0.18)
+        p.setBrush(QBrush(spec2))
+        p.drawEllipse(QRectF(cx - base * 0.44, cy - base * 0.50, base * 0.20, base * 0.12))
+
+        # eyes - equal size, aligned, soft rim so they read as glassy
+        eye_w, eye_h = base * 0.26, base * 0.40
+        gap = base * 0.52
+        open_ = max(0.08, 1.0 - self.blink)
+        drift = math.sin(self.phase * 0.35) * base * 0.025 if self.mode == "idle" else 0.0
+        rimc = QColor(10, 10, 20); rimc.setAlphaF(0.35)
+        for sign in (-1, 1):
+            ex = cx + sign * gap / 2 + drift
+            p.setBrush(QBrush(rimc))
+            p.drawRoundedRect(QRectF(ex - eye_w / 2 - 2, cy - eye_h * open_ / 2 - 2,
+                                     eye_w + 4, eye_h * open_ + 4), eye_w / 2 + 2, eye_w / 2 + 2)
+            glow = QColor(255, 255, 255); glow.setAlphaF(0.22)
+            p.setBrush(QBrush(glow))
+            p.drawEllipse(QPointF(ex, cy), eye_w * 0.95, max(eye_h * 0.5, eye_h * open_))
+            p.setBrush(QBrush(QColor(255, 255, 255, 245)))
+            p.drawRoundedRect(QRectF(ex - eye_w / 2, cy - eye_h * open_ / 2,
+                                     eye_w, eye_h * open_), eye_w / 2, eye_w / 2)
+        p.end()
+
+
+# ---------------------------------------------------------------- waveform
+class Wave(QWidget):
+    """One smooth, gradient-curved line (not bars). Rotating particle ring while thinking."""
+
+    N = 90
+
+    def __init__(self):
+        super().__init__()
+        self.mode = "idle"
+        self.level = 0.0
+        self.phase = 0.0
+        self.amp = 0.0
+        self.setFixedHeight(96)
+
+    def _tick(self):
+        self.phase += 0.06
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        mid = h / 2
+        target = {"idle": 3.0, "listening": 10 + self.level * 46,
+                  "processing": 10.0, "speaking": 12 + 0.5 * 34}[self.mode]
+        self.amp = _lerp(self.amp, target, 0.18)
+
+        if self.mode == "processing":
+            # rotating ring of particles instead of a line
+            for i in range(14):
+                a = self.phase * 0.9 + i * (2 * math.pi / 14)
+                r = min(w, h) * 0.30
+                x, y = w / 2 + math.cos(a) * r, mid + math.sin(a) * r * 0.42
+                size = 2.2 + 2.0 * ((math.sin(self.phase * 2 + i) + 1) / 2)
+                c = _mix(VIOLET, CYAN, (math.sin(self.phase + i * 0.5) + 1) / 2)
+                c.setAlphaF(0.85)
+                p.setPen(Qt.NoPen); p.setBrush(QBrush(c))
+                p.drawEllipse(QPointF(x, y), size, size)
+            p.end()
+            return
+
+        pts = []
+        for i in range(self.N):
+            t = i / (self.N - 1)
+            env = math.sin(math.pi * t) ** 0.9                     # softer centre
+            wave = math.sin(t * math.pi * 3.2 + self.phase * 2.4) * 0.60 \
+                + math.sin(t * math.pi * 7.1 - self.phase * 1.7) * 0.40
+            pts.append(QPointF(12 + t * (w - 24), mid + wave * self.amp * env))
+
+        path = QPainterPath(pts[0])
+        for i in range(1, len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            path.quadTo(a, QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2))
+        path.lineTo(pts[-1])
+
+        grad = QLinearGradient(0, 0, w, 0)
+        tr = QColor(VIOLET); tr.setAlphaF(0.0)
+        tr2 = QColor(PINK); tr2.setAlphaF(0.0)
+        mid_alpha = 0.75 + self.level * 0.25
+        v = QColor(VIOLET); v.setAlphaF(mid_alpha)
+        b = QColor(BLUE); b.setAlphaF(mid_alpha)
+        cy_ = QColor(CYAN); cy_.setAlphaF(mid_alpha)
+        pk = QColor(PINK); pk.setAlphaF(mid_alpha)
+        grad.setColorAt(0.00, tr)
+        grad.setColorAt(0.07, v)
+        grad.setColorAt(0.38, b)
+        grad.setColorAt(0.68, cy_)
+        grad.setColorAt(0.93, pk)
+        grad.setColorAt(1.00, tr2)
+
+        # glow layers
+        for width, alpha in ((14, 0.10), (9, 0.16), (5.5, 0.28)):
+            c = QColor(BLUE); c.setAlphaF(alpha + self.level * 0.16)
+            pen = QPen(c, width); pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen); p.setBrush(Qt.NoBrush)
+            p.drawPath(path)
+
+        pen = QPen(QBrush(grad), 4.0 + self.level * 6.0)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        p.drawPath(path)
+        p.end()
+
+
+# ---------------------------------------------------------------- pills
+class Pill(QPushButton):
+    def __init__(self, text, onclick):
+        super().__init__(text)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet(
+            f"QPushButton{{{PILL} color:#E9E9EF; padding:10px 18px; font-size:13px;}}"
+            f"QPushButton:hover{{{PILL_HOVER} color:#fff;}}")
+        self.clicked.connect(onclick)
+        self._fx = QGraphicsOpacityEffect(self)
+        self._fx.setOpacity(0.0)
+        self.setGraphicsEffect(self._fx)
+
+    def fade_in(self, delay_ms):
+        from PySide6.QtCore import QPropertyAnimation
+        anim = QPropertyAnimation(self._fx, b"opacity", self)
+        anim.setDuration(280)
+        anim.setStartValue(0.0); anim.setEndValue(1.0)
+        QTimer.singleShot(delay_ms, anim.start)
+
+
+class MenuButton(QPushButton):
+    """Three-line menu icon, drawn (no font glyph)."""
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(40, 40)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet("QPushButton{background:transparent;border:0;}")
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        col = QColor(TEXT) if self.underMouse() else QColor("#C7C7CC")
+        p.setPen(Qt.NoPen); p.setBrush(QBrush(col))
+        w, x = 20.0, (self.width() - 20) / 2.0
+        for y in (14.0, 19.5, 25.0):
+            p.drawRoundedRect(QRectF(x, y, w, 2.2), 1.1, 1.1)
+        p.end()
+
+
+ICON_PATHS = {
+    "mic": [(9, 3, 6, 11, 3), "arc", (12, 18, 12, 21)],
+}
 
 
 class IconButton(QPushButton):
-    def __init__(self, kind, tooltip="", accent=False, size=44):
+    """Monoline vector icons drawn with QPainter (no emoji, no assets)."""
+
+    def __init__(self, kind, tooltip="", accent=False, size=40):
         super().__init__()
         self.kind = kind
         self.accent = accent
-        self.active = False
         self.setFixedSize(size, size)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(tooltip)
@@ -107,178 +361,45 @@ class IconButton(QPushButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         w, h = self.width(), self.height()
+        s = min(w, h) * 0.5
         if self.accent:
             g = QLinearGradient(0, 0, w, h)
-            g.setColorAt(0, QColor(VIOLET)); g.setColorAt(1, QColor(BLUE))
+            g.setColorAt(0, VIOLET); g.setColorAt(1, BLUE)
             p.setBrush(QBrush(g)); p.setPen(Qt.NoPen)
             p.drawEllipse(QRectF(0, 0, w, h))
-            col = QColor("#ffffff")
+            col = QColor(255, 255, 255)
         else:
-            if self.active:
-                g = QLinearGradient(0, 0, w, h)
-                g.setColorAt(0, QColor(139, 92, 246, 165))
-                g.setColorAt(1, QColor(59, 130, 246, 150))
-                p.setBrush(QBrush(g)); p.setPen(Qt.NoPen)
-                p.drawRoundedRect(QRectF(2, 2, w - 4, h - 4), 13, 13)
-            col = QColor("#ffffff") if self.active else \
-                (QColor(TEXT) if self.underMouse() else QColor(MUTED))
-        pen = QPen(col, 1.8)
-        pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
-        p.setPen(pen)
-        p.translate(self.width() / 2 - 11, self.height() / 2 - 11)
-        p.drawPath(_icon_path(self.kind))
+            col = QColor(TEXT) if self.underMouse() else QColor("#C7C7CC")
+        pen = QPen(col, 1.7); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        cx, cy = w / 2, h / 2
+        if self.kind == "mic":
+            p.drawRoundedRect(QRectF(cx - s * 0.22, cy - s * 0.62, s * 0.44, s * 0.72),
+                              s * 0.22, s * 0.22)
+            p.drawArc(QRectF(cx - s * 0.46, cy - s * 0.36, s * 0.92, s * 0.78), 180 * 16, 180 * 16)
+            p.drawLine(QPointF(cx, cy + s * 0.42), QPointF(cx, cy + s * 0.66))
+        elif self.kind == "send":
+            p.drawPolygon([QPointF(cx - s * 0.55, cy), QPointF(cx + s * 0.62, cy - s * 0.42),
+                           QPointF(cx + s * 0.16, cy + s * 0.58), QPointF(cx - s * 0.12, cy + s * 0.08)])
+        else:  # plus
+            p.drawLine(QPointF(cx, cy - s * 0.42), QPointF(cx, cy + s * 0.42))
+            p.drawLine(QPointF(cx - s * 0.42, cy), QPointF(cx + s * 0.42, cy))
         p.end()
 
 
-# ------------------------------------------------------------------ the orb
-class Orb(QWidget):
-    BARS = 40
-
-    def __init__(self):
-        super().__init__()
-        self.mode = "idle"
-        self.level = 0.0
-        self.phase = 0.0
-        self.blink = 0.0
-        self.setMinimumSize(300, 300)
-        t = QTimer(self); t.timeout.connect(self._tick); t.start(16)
-
-    def _tick(self):
-        self.phase += 0.05
-        # blink every ~3.5 s for ~0.16 s
-        beat = self.phase % 3.9
-        self.blink = max(0.0, 1.0 - abs(beat - 0.2) / 0.16)
-        self.update()
-
-    def paintEvent(self, _e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        w, h = self.width(), self.height()
-        cx, cy = w / 2.0, h * 0.46
-        base = min(w, h) * 0.17
-
-        if self.mode == "listening":
-            live, c1, c2 = self.level, QColor("#60A5FA"), QColor(BLUE)
-            c1s, c2s = "#93C5FD", BLUE
-        elif self.mode == "processing":
-            live, c1, c2 = 0.35, QColor(VIOLET), QColor(PINK)
-            c1s, c2s = VIOLET, PINK
-        elif self.mode == "speaking":
-            live, c1, c2 = 0.45 + 0.3 * (math.sin(self.phase * 1.8) + 1) / 2, QColor("#60A5FA"), QColor(BLUE)
-            c1s, c2s = "#93C5FD", BLUE
-        else:  # idle
-            live, c1, c2 = 0.05 + 0.03 * math.sin(self.phase * 0.5), QColor(VIOLET), QColor(BLUE)
-            c1s, c2s = VIOLET, BLUE
-
-        # aura
-        aura_r = base * (2.4 + live * 1.5)
-        g = QRadialGradient(QPointF(cx, cy), aura_r)
-        a0 = QColor(c1); a0.setAlphaF(min(0.65, 0.10 + live * 0.5))
-        a1 = QColor(c2); a1.setAlphaF(0.0)
-        g.setColorAt(0.0, a0); g.setColorAt(1.0, a1)
-        p.setPen(Qt.NoPen); p.setBrush(QBrush(g))
-        p.drawEllipse(QPointF(cx, cy), aura_r, aura_r)
-
-        # rotating ring while processing
-        if self.mode == "processing":
-            ang = (self.phase * 60) % 360
-            pen = QPen(QColor(c2), 2.2); pen.setCapStyle(Qt.RoundCap)
-            p.setPen(pen); p.setBrush(Qt.NoBrush)
-            p.drawArc(QRectF(cx - base * 1.55, cy - base * 1.55, base * 3.1, base * 3.1),
-                      int(ang * 16), int(110 * 16))
-        else:
-            for i, mult in enumerate((1.85, 1.45, 1.10)):
-                r = base * mult * (1 + live * 0.14 * (1 - i / 4))
-                ring = QColor(c2)
-                ring.setAlphaF(min(0.75, 0.10 + live * 0.55 * (1 - i / 5)))
-                p.setPen(QPen(ring, 1.3)); p.setBrush(Qt.NoBrush)
-                p.drawEllipse(QPointF(cx, cy), r, r)
-
-        # core sphere
-        core_r = base * (1.0 + live * 0.32)
-        core = QRadialGradient(QPointF(cx - core_r * 0.28, cy - core_r * 0.32), core_r * 1.8)
-        core.setColorAt(0.0, QColor("#C4B5FD" if self.mode != "listening" else "#BFDBFE"))
-        core.setColorAt(0.55, QColor(VIOLET if self.mode != "listening" else BLUE))
-        core.setColorAt(1.0, QColor("#312E81" if self.mode != "listening" else "#1E3A8A"))
-        p.setPen(Qt.NoPen); p.setBrush(QBrush(core))
-        p.drawEllipse(QPointF(cx, cy), core_r, core_r)
-
-        # eyes
-        eye_w, eye_h = core_r * 0.34, core_r * 0.46
-        gap = core_r * 0.52
-        open_ = max(0.08, 1.0 - self.blink)
-        for sign in (-1, 1):
-            rect = QRectF(cx + sign * gap / 2 - eye_w / 2, cy - eye_h * open_ / 2,
-                          eye_w, eye_h * open_)
-            p.setBrush(QBrush(QColor(255, 255, 255, 235)))
-            p.drawRoundedRect(rect, eye_w / 2, eye_w / 2)
-
-        # waveform
-        n = self.BARS
-        span = w * 0.78
-        x0 = (w - span) / 2.0
-        slot = span / n
-        bw = max(2.0, slot * 0.5)
-        wy = h * 0.86
-        for i in range(n):
-            t = i / (n - 1)
-            center = math.sin(math.pi * t) ** 0.85
-            if self.mode == "idle":
-                amp = 4 + 8 * center * (0.5 + 0.5 * math.sin(self.phase * 0.9 + i * 0.4)); a = 0.30
-            elif self.mode == "processing":
-                amp = 4 + (10 + 40 * center) * (0.6 + 0.4 * math.sin(self.phase * 1.6 + i * 0.9)); a = 0.55
-            else:
-                amp = 4 + (10 + live * 90) * (0.35 + 0.65 * center) * \
-                      (0.35 + 0.65 * (math.sin(self.phase * 2.2 + i * 0.55) + 1) / 2)
-                a = min(1.0, 0.35 + 0.6 * center)
-            c = QColor(c1 if self.mode == "listening" else c2)
-            c.setAlphaF(a)
-            p.setBrush(QBrush(c)); p.setPen(Qt.NoPen)
-            p.drawRoundedRect(QRectF(x0 + i * slot, wy - amp / 2, bw, amp), bw / 2, bw / 2)
-        p.end()
-
-
-# ------------------------------------------------------------------ bubbles
-class Bubble(QFrame):
-    def __init__(self, text, role):
-        super().__init__()
-        self.role = role
-        self.label = QLabel(text)
-        self.label.setWordWrap(True)
-        self.label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.label.setStyleSheet(f"color:{TEXT};font-size:14px;background:transparent;")
-        row = QHBoxLayout(self)
-        row.setContentsMargins(14, 11, 14, 11)
-        row.addWidget(self.label, 1)
-        if role == "user":
-            self.setStyleSheet("QFrame{background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                               "stop:0 rgba(139,92,246,0.30), stop:1 rgba(59,130,246,0.28));"
-                               "border:1px solid rgba(139,92,246,0.45);border-radius:16px;}")
-        else:
-            self.setStyleSheet("QFrame{background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                               "stop:0 rgba(255,255,255,0.07), stop:1 rgba(24,24,27,0.88));"
-                               "border:1px solid rgba(255,255,255,0.10);border-radius:16px;}")
-        self.setMaximumWidth(580)
-
-    def append(self, chunk):
-        self.label.setText(self.label.text() + chunk)
-
-
-# ------------------------------------------------------------------ window
+# ---------------------------------------------------------------- window
 class Window(QMainWindow):
     mode_sig = Signal(str, str)
-    heard_sig = Signal(str)
+    transcript_sig = Signal(str)
     reply_sig = Signal(str)
     level_sig = Signal(float)
-    add_bubble = Signal(str, str)
     stream_sig = Signal(str)
+    history_sig = Signal(str, str)
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RealAssistant")
-        self.resize(1080, 720)
-        self.setMinimumSize(880, 620)
-        self.setStyleSheet(f"QMainWindow{{background:{BG_GLOW};}}")
+        self.resize(980, 760); self.setMinimumSize(760, 620)
         self.assistant = Assistant(on_text=self._on_text, on_tool=self._on_tool,
                                     on_learned=lambda f: None)
         self.mic = None
@@ -286,201 +407,214 @@ class Window(QMainWindow):
         self._spoken = []
         self._silence_since = None
         self._started = 0.0
-        self._dragging = None
-        self._current = None
+        self.history = []
         self._build()
-        QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._toggle_visible)
-
-    # ------------------------------------------------------------ build
-    def _build(self):
-        root = QWidget(); self.setCentralWidget(root)
-        outer = QHBoxLayout(root); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
-
-        # sidebar
-        self.side = QFrame()
-        self.side.setFixedWidth(72)
-        self.side.setStyleSheet(f"QFrame{{background:rgba(9,9,11,0.55);"
-                                f"border-right:1px solid rgba(255,255,255,0.08);}}")
-        sl = QVBoxLayout(self.side); sl.setContentsMargins(16, 18, 16, 18); sl.setSpacing(14)
-        self.nav_buttons = {}
-        for key, tip in (("home", "Home"), ("tasks", "Tasks"), ("insights", "Insights")):
-            b = IconButton(key, tip)
-            b.clicked.connect(lambda _=False, k=key: self._page(k))
-            sl.addWidget(b, alignment=Qt.AlignHCenter)
-            self.nav_buttons[key] = b
-        sl.addStretch(1)
-        line = QFrame(); line.setFixedHeight(1)
-        line.setStyleSheet("background: rgba(255,255,255,0.09);")
-        sl.addWidget(line)
-        self.compact_btn = IconButton("shrink", "Compact mode")
-        self.compact_btn.clicked.connect(self._toggle_compact)
-        sl.addWidget(self.compact_btn, alignment=Qt.AlignHCenter)
-        gear = IconButton("gear", "Settings")
-        gear.clicked.connect(lambda: self._page("settings"))
-        sl.addWidget(gear, alignment=Qt.AlignHCenter)
-        self.nav_buttons["settings"] = gear
-        outer.addWidget(self.side)
-
-        # pages
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self._home_page())
-        self.stack.addWidget(self._tasks_page())
-        self.stack.addWidget(self._insights_page())
-        self.stack.addWidget(self._settings_page())
-        outer.addWidget(self.stack, 1)
-        self._page("home")
         self.mode_sig.connect(self._apply_mode)
-        self.level_sig.connect(self._apply_level)
-        self.heard_sig.connect(lambda t: (self.overlay.setText(t), self.overlay.setVisible(bool(t))))
+        self.transcript_sig.connect(self._set_transcript)
         self.reply_sig.connect(self._set_reply)
-        self.add_bubble.connect(self._add_bubble)
-        self.stream_sig.connect(self._stream_chunk)
+        self.level_sig.connect(self._set_level)
+        self.stream_sig.connect(self._stream)
+        self.history_sig.connect(self._log_history)
+        QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._toggle_visible)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_menu)
 
-    def _home_page(self):
-        page = QWidget()
-        lay = QVBoxLayout(page); lay.setContentsMargins(28, 16, 28, 16); lay.setSpacing(10)
+    # ------------------------------------------------------ build
+    def _build(self):
+        stage = Background()
+        self.setCentralWidget(stage)
+        root = QVBoxLayout(stage)
+        root.setContentsMargins(26, 18, 26, 18)
+        root.setSpacing(10)
 
-        self.orb = Orb()
-        lay.addWidget(self.orb, 2)
+        # top bar: menu + status
+        top = QHBoxLayout()
+        self.menu_btn = MenuButton()
+        self.menu_btn.setToolTip("Menu (Ctrl+K)")
+        self.menu_btn.clicked.connect(self._open_menu)
+        top.addWidget(self.menu_btn)
+        top.addStretch(1)
+        chip = QLabel(f"{PROVIDER} · {MODEL_NAME.split('/')[-1]}")
+        chip.setStyleSheet(f"color:#DCDCE4;border:1px solid {BORDER};border-radius:11px;"
+                           f"padding:4px 12px;font-size:12px;")
+        top.addWidget(chip)
+        root.addLayout(top)
 
-        self.status = QLabel("Tap to talk")
-        self.status.setAlignment(Qt.AlignCenter)
-        self.status.setFont(QFont("Segoe UI Variable Display", 16, QFont.DemiBold))
-        self.status.setStyleSheet(f"color:{TEXT};")
-        lay.addWidget(self.status)
+        # stage stack (home / tasks / insights / settings / conversation)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self._home())
+        self.stack.addWidget(self._tasks())
+        self.stack.addWidget(self._insights())
+        self.stack.addWidget(self._settings())
+        self.stack.addWidget(self._conversation())
+        root.addWidget(self.stack, 1)
 
-        self.overlay = QLabel("")
-        self.overlay.setAlignment(Qt.AlignCenter)
-        self.overlay.setStyleSheet(f"{PILL} color:{TEXT}; padding:6px 16px;")
-        self.overlay.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        wrap = QHBoxLayout(); wrap.addStretch(1); wrap.addWidget(self.overlay); wrap.addStretch(1)
-        lay.addLayout(wrap)
-        self.overlay.hide()
-
-        # transcript
-        self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
-        self.scroll.setStyleSheet("QScrollArea{background:transparent;border:0;}")
-        holder = QWidget(); holder.setStyleSheet("background:transparent;")
-        self.msg_lay = QVBoxLayout(holder); self.msg_lay.setContentsMargins(0, 0, 0, 0)
-        self.msg_lay.setSpacing(10); self.msg_lay.addStretch(1)
-        self.scroll.setWidget(holder)
-        self.scroll.setMinimumHeight(150)
-        lay.addWidget(self.scroll, 2)
-
-        # quick chips
-        self.chips_row = QHBoxLayout(); self.chips_row.setSpacing(8)
-        for text in CHIPS:
-            c = QPushButton(text)
-            c.setCursor(Qt.PointingHandCursor)
-            c.setStyleSheet(f"QPushButton{{{PILL} color:#C7C7CC; padding:9px 16px; font-size:12px;}}"
-                            f"QPushButton:hover{{color:{TEXT};border:1px solid rgba(139,92,246,0.65);}}")
-            c.clicked.connect(lambda _=False, t=text: self._send_text(t))
-            self.chips_row.addWidget(c)
+        # chips
+        self.chips_row = QHBoxLayout(); self.chips_row.setSpacing(10)
         self.chips_row.addStretch(1)
-        lay.addLayout(self.chips_row)
+        for text in CHIPS:
+            pill = Pill(text, lambda _=False, t=text: self._send_text(t))
+            pill.setVisible(False)
+            self.chips_row.insertWidget(self.chips_row.count() - 1, pill)
+        self.chips_row.addStretch(1)
+        root.addLayout(self.chips_row)
 
-        # floating input bar
-        bar = QFrame(); bar.setStyleSheet(f"QFrame{{{GLASS}}}")
-        bl = QHBoxLayout(bar); bl.setContentsMargins(12, 9, 12, 9); bl.setSpacing(10)
-        bl.addWidget(IconButton("plus", "Attach (coming soon)"))
+        # floating input pill
+        self.bar = QFrame(); self.bar.setStyleSheet(f"QFrame{{{GLASS} border-radius:28px;}}")
+        bl = QHBoxLayout(self.bar); bl.setContentsMargins(14, 8, 14, 8); bl.setSpacing(10)
+        self.attach = IconButton("plus", "Attach (coming soon)", size=36)
+        bl.addWidget(self.attach)
         self.entry = QLineEdit()
-        self.entry.setPlaceholderText("Ask me anything…")
-        self.entry.setStyleSheet(f"QLineEdit{{background:transparent;border:0;color:{TEXT};font-size:14px;}}")
+        self.entry.setPlaceholderText("Ask anything…")
+        self.entry.setStyleSheet("QLineEdit{background:transparent;border:0;color:#FAFAFA;"
+                                 "font-size:15px;font-style:italic;}")
+        self.entry.textChanged.connect(self._on_text_changed)
         self.entry.returnPressed.connect(lambda: self._send_text(self.entry.text()))
         bl.addWidget(self.entry, 1)
+        self.send = IconButton("send", "Send", size=36)
+        self.send.setVisible(False)
+        self.send.clicked.connect(lambda: self._send_text(self.entry.text()))
+        bl.addWidget(self.send)
         self.mic_btn = IconButton("mic", "Talk", accent=True, size=44)
         self.mic_btn.clicked.connect(self.toggle_talk)
         bl.addWidget(self.mic_btn)
-        send = IconButton("send", "Send")
-        send.setStyleSheet("QPushButton{background:transparent;border:0;}")
-        send.clicked.connect(lambda: self._send_text(self.entry.text()))
-        bl.addWidget(send)
-        lay.addWidget(bar)
+        root.addWidget(self.bar)
+        self.bar.installEventFilter(self)
 
-        footer = QHBoxLayout()
-        footer.addStretch(1)
-        hint = QLabel("hold Space to talk  ·  Ctrl+Space show/hide")
-        hint.setStyleSheet(f"color:#C7C7CC;font-size:12px;")
-        footer.addWidget(hint)
-        lay.addLayout(footer)
+        hint = QLabel("hold Space to talk   ·   Ctrl+Space show / hide   ·   Ctrl+K menu")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet("color:#CFCFD8;font-size:12.5px;")
+        root.addWidget(hint)
+        self._set_visibility("idle")
+
+    def _home(self):
+        page = Background()
+        lay = QVBoxLayout(page); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(6)
+
+        self.orb = Orb()
+        self.wave = Wave()
+        timer = QTimer(self); timer.timeout.connect(self.wave._tick); timer.start(16)
+
+        self.state_label = QLabel(GREETINGS[0])
+        self.state_label.setAlignment(Qt.AlignCenter)
+        self.state_label.setFont(QFont("Segoe UI Variable Display", 17, QFont.DemiBold))
+        self.state_label.setStyleSheet(f"color:{TEXT};")
+
+        self.reply_label = QLabel("")
+        self.reply_label.setAlignment(Qt.AlignCenter)
+        self.reply_label.setWordWrap(True)
+        self.reply_label.setFont(QFont("Segoe UI Variable Text", 16))
+        self.reply_label.setStyleSheet(f"color:{TEXT};")
+        self.reply_label.setMaximumWidth(680)
+
+        self.transcript = QLabel("")
+        self.transcript.setAlignment(Qt.AlignCenter)
+        self.transcript.setStyleSheet(
+            "background: rgba(139,92,246,0.20); border:1px solid rgba(139,92,246,0.38);"
+            "border-radius:22px; padding:12px 28px; color:#F2F2F6; font-size:15px;")
+        self.transcript.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        twrap = QHBoxLayout(); twrap.addStretch(1); twrap.addWidget(self.transcript); twrap.addStretch(1)
+
+        lay.addStretch(2)
+        lay.addWidget(self.orb, 5)
+        lay.addWidget(self.wave, 1)
+        lay.addSpacing(6)
+        lay.addWidget(self.state_label)
+        lay.addLayout(twrap)
+        lay.addWidget(self.reply_label, 0, Qt.AlignHCenter)
+        lay.addStretch(2)
         return page
 
-    def _tasks_page(self):
-        page = QWidget(); lay = QVBoxLayout(page); lay.setContentsMargins(28, 24, 28, 24)
-        title = QLabel("Tasks & reminders"); title.setFont(QFont("Segoe UI Variable Display", 18, QFont.DemiBold))
+    def _tasks(self):
+        page = Background(); lay = QVBoxLayout(page); lay.setContentsMargins(80, 24, 80, 24)
+        title = QLabel("Tasks"); title.setFont(QFont("Segoe UI Variable Display", 20, QFont.DemiBold))
+        title.setStyleSheet(f"color:{TEXT};")
         lay.addWidget(title)
         self.tasks_body = QLabel("")
-        self.tasks_body.setWordWrap(True); self.tasks_body.setStyleSheet(f"color:{MUTED};")
+        self.tasks_body.setWordWrap(True); self.tasks_body.setStyleSheet("color:#C7C7CC;font-size:14px;")
         card = QFrame(); card.setStyleSheet(f"QFrame{{{GLASS}}}")
         cl = QVBoxLayout(card); cl.addWidget(self.tasks_body)
-        lay.addWidget(card)
-        refresh = QPushButton("Refresh")
-        refresh.setStyleSheet(f"QPushButton{{{PILL} color:{TEXT}; padding:8px 16px;}}")
-        refresh.clicked.connect(self._refresh_tasks)
-        lay.addWidget(refresh, alignment=Qt.AlignLeft)
-        lay.addStretch(1)
+        lay.addWidget(card); lay.addStretch(1)
         return page
 
-    def _insights_page(self):
-        page = QWidget(); lay = QVBoxLayout(page); lay.setContentsMargins(28, 24, 28, 24)
-        title = QLabel("Insights"); title.setFont(QFont("Segoe UI Variable Display", 18, QFont.DemiBold))
+    def _insights(self):
+        page = Background(); lay = QVBoxLayout(page); lay.setContentsMargins(80, 24, 80, 24)
+        title = QLabel("Insights"); title.setFont(QFont("Segoe UI Variable Display", 20, QFont.DemiBold))
+        title.setStyleSheet(f"color:{TEXT};")
         lay.addWidget(title)
         self.insight_body = QLabel("")
-        self.insight_body.setWordWrap(True); self.insight_body.setStyleSheet(f"color:{MUTED};")
+        self.insight_body.setWordWrap(True); self.insight_body.setStyleSheet("color:#C7C7CC;font-size:14px;")
         card = QFrame(); card.setStyleSheet(f"QFrame{{{GLASS}}}")
         cl = QVBoxLayout(card); cl.addWidget(self.insight_body)
-        lay.addWidget(card)
-        refresh = QPushButton("Refresh")
-        refresh.setStyleSheet(f"QPushButton{{{PILL} color:{TEXT}; padding:8px 16px;}}")
-        refresh.clicked.connect(self._refresh_insights)
-        lay.addWidget(refresh, alignment=Qt.AlignLeft)
-        lay.addStretch(1)
+        lay.addWidget(card); lay.addStretch(1)
         return page
 
-    def _settings_page(self):
-        page = QWidget(); lay = QVBoxLayout(page); lay.setContentsMargins(28, 24, 28, 24)
-        title = QLabel("Settings"); title.setFont(QFont("Segoe UI Variable Display", 18, QFont.DemiBold))
+    def _settings(self):
+        page = Background(); lay = QVBoxLayout(page); lay.setContentsMargins(80, 24, 80, 24)
+        title = QLabel("Settings"); title.setFont(QFont("Segoe UI Variable Display", 20, QFont.DemiBold))
+        title.setStyleSheet(f"color:{TEXT};")
         lay.addWidget(title)
         card = QFrame(); card.setStyleSheet(f"QFrame{{{GLASS}}}")
         cl = QVBoxLayout(card); cl.setSpacing(10)
-        cl.addWidget(self._muted("Spoken voice"))
+        lbl = QLabel("Spoken voice"); lbl.setStyleSheet("color:#C7C7CC;font-size:13px;")
+        cl.addWidget(lbl)
         self.voice_box = QComboBox()
         self.voice_box.addItems(voice.list_voices() or ["(none found)"])
         self.voice_box.currentTextChanged.connect(self._set_voice)
-        self.voice_box.setStyleSheet(f"QComboBox{{background:transparent;color:{TEXT};border:1px solid {BORDER};"
-                                     f"border-radius:10px;padding:6px 10px;}}")
+        self.voice_box.setStyleSheet("QComboBox{background:transparent;color:#FAFAFA;"
+                                     f"border:1px solid {BORDER};border-radius:12px;padding:7px 12px;}}")
         cl.addWidget(self.voice_box)
-        cl.addWidget(self._muted(f"Provider: {PROVIDER} · model: {MODEL_NAME}"))
+        info = QLabel(f"Provider: {PROVIDER}   ·   model: {MODEL_NAME}")
+        info.setStyleSheet("color:#C7C7CC;font-size:13px;")
+        cl.addWidget(info)
         check = QPushButton("Check service")
-        check.setStyleSheet(f"QPushButton{{{PILL} color:{TEXT}; padding:8px 16px;}}")
+        check.setCursor(Qt.PointingHandCursor)
+        check.setStyleSheet(f"QPushButton{{{PILL} color:#EDEDF3; padding:9px 18px;}}"
+                            f"QPushButton:hover{{{PILL_HOVER}}}")
         check.clicked.connect(self._check_service)
-        cl.addWidget(check, alignment=Qt.AlignLeft)
-        lay.addWidget(card)
-        lay.addStretch(1)
+        cl.addWidget(check, Qt.AlignLeft)
+        lay.addWidget(card); lay.addStretch(1)
         return page
 
-    def _muted(self, text):
-        label = QLabel(text); label.setStyleSheet(f"color:{MUTED};font-size:12px;")
-        return label
+    def _conversation(self):
+        page = Background(); lay = QVBoxLayout(page); lay.setContentsMargins(80, 24, 80, 24)
+        title = QLabel("Conversation"); title.setFont(QFont("Segoe UI Variable Display", 20, QFont.DemiBold))
+        title.setStyleSheet(f"color:{TEXT};")
+        lay.addWidget(title)
+        self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("QScrollArea{background:transparent;border:0;}")
+        holder = Background()
+        self.log_lay = QVBoxLayout(holder); self.log_lay.setContentsMargins(0, 0, 0, 0)
+        self.log_lay.setSpacing(10); self.log_lay.addStretch(1)
+        self.scroll.setWidget(holder)
+        lay.addWidget(self.scroll, 1)
+        note = QLabel("Hidden by default — voice first. Ctrl+K → Conversation to see it.")
+        note.setStyleSheet("color:#9A9AA5;font-size:12px;")
+        lay.addWidget(note)
+        return page
 
-    # ------------------------------------------------------------ pages
-    def _page(self, key):
-        self.stack.setCurrentIndex({"home": 0, "tasks": 1, "insights": 2, "settings": 3}[key])
-        for name, btn in self.nav_buttons.items():
-            btn.active = (name == key)
-            btn.update()
-        if key == "tasks":
+    # ------------------------------------------------------ menu / pages
+    def _open_menu(self):
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu{background:#17171F;color:#EDEDF3;border:1px solid rgba(255,255,255,0.10);"
+                           "border-radius:12px;padding:6px;} QMenu::item{padding:7px 18px;border-radius:8px;}"
+                           "QMenu::item:selected{background:rgba(139,92,246,0.28);}")
+        for label, idx in (("Home", 0), ("Tasks", 1), ("Insights", 2),
+                           ("Settings", 3), ("Conversation", 4)):
+            menu.addAction(label, lambda i=idx: self._goto(i))
+        menu.exec(self.menu_btn.mapToGlobal(self.menu_btn.rect().bottomLeft()))
+
+    def _goto(self, idx):
+        self.stack.setCurrentIndex(idx)
+        if idx == 1:
             self._refresh_tasks()
-        elif key == "insights":
+        elif idx == 2:
             self._refresh_insights()
 
     def _refresh_tasks(self):
         rows = self.assistant.reminders.list()
-        if rows:
-            self.tasks_body.setText("<br>".join(
-                f"• {r['message']} — {str(r['due']).replace('T', ' ')}" for r in rows))
-        else:
-            self.tasks_body.setText("No reminders yet. Say “remind me in 10 minutes…”.")
+        self.tasks_body.setText("<br>".join(
+            f"• {r['message']} — {str(r['due']).replace('T', ' ')}" for r in rows)
+            or "No reminders yet. Try: “Remind me in 10 minutes to stretch”.")
 
     def _refresh_insights(self):
         import audit
@@ -491,38 +625,47 @@ class Window(QMainWindow):
         top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
         lines = [f"<b>{len(rows)}</b> actions logged."]
         if top:
-            lines.append("<br><br>Most used:")
-            lines += [f"<br>• {name} — {count}" for name, count in top]
-        recent = [f"{r['ts'][11:16]} {r['tool']}" for r in rows[-5:]]
-        if recent:
-            lines.append("<br><br>Recent: " + ", ".join(reversed(recent)))
+            lines.append("<br><br>Most used:<br>" +
+                         "<br>".join(f"• {n} — {c}" for n, c in top))
         self.insight_body.setText("".join(lines))
 
-    # ------------------------------------------------------------ chat
-    def _add_bubble(self, role, text):
-        b = Bubble(text, role)
-        hb = QHBoxLayout()
-        if role == "user":
-            hb.addStretch(1); hb.addWidget(b)
+    # ------------------------------------------------------ visibility
+    def _set_visibility(self, mode, hint=""):
+        listening = mode == "listening"
+        processing = mode == "processing"
+        speaking = mode == "speaking"
+
+        self.transcript.setVisible(listening and bool(hint))
+        self.wave.setVisible(mode in ("listening", "speaking", "processing"))
+        self.reply_label.setVisible(speaking or bool(self.reply_label.text()))
+        self.bar.setVisible(not listening)
+        self.state_label.setVisible(not listening)
+        if listening:
+            self.state_label.setText("")
+        elif processing:
+            self.state_label.setText("Thinking…")
+        elif speaking:
+            self.state_label.setText("")
         else:
-            hb.addWidget(b); hb.addStretch(1)
-        self.msg_lay.insertLayout(self.msg_lay.count() - 1, hb)
-        self._current = b
-        QTimer.singleShot(30, lambda: self.scroll.verticalScrollBar().setValue(
-            self.scroll.verticalScrollBar().maximum()))
+            self.state_label.setText(GREETINGS[int(self.orb.phase) % len(GREETINGS)])
+        if not (listening or processing):
+            pass
+        for i in range(self.chips_row.count()):
+            w = self.chips_row.itemAt(i).widget()
+            if isinstance(w, Pill):
+                show = mode == "idle" and bool(self.history)
+                w.setVisible(show)
+                if show and w.graphicsEffect().opacity() < 0.05:
+                    w.fade_in(120 * i)
+        self._apply_menu_cursor()
 
-    def _stream_chunk(self, chunk):
-        if self._current is not None and self._current.role == "assistant":
-            self._current.append(chunk)
+    def _apply_menu_cursor(self):
+        pass
 
-    def _set_reply(self, text):
-        if self._current is not None and self._current.role == "assistant":
-            if not self._current.label.text().strip():
-                self._current.label.setText(text)
-        else:
-            self._add_bubble("assistant", text)
+    # ------------------------------------------------------ chat
+    def _on_text_changed(self, text):
+        self.send.setVisible(bool(text.strip()))
 
-    # ------------------------------------------------------------ actions
     def _send_text(self, text):
         text = (text or "").strip()
         if not text:
@@ -531,15 +674,15 @@ class Window(QMainWindow):
         threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
 
     def _run_turn(self, text):
-        self.add_bubble.emit("user", text)
-        self.add_bubble.emit("assistant", "")
+        self.history_sig.emit("You", text)
         self._spoken = []
         self.mode_sig.emit("processing", "")
         try:
             reply = self.assistant.ask(text)
         except Exception as e:
             self.mode_sig.emit("idle", "")
-            self.add_bubble.emit("assistant", f"⚠ {str(e)[:200]}")
+            self.transcript_sig.emit("")
+            self.reply_label.setText(f"⚠ {str(e)[:180]}")
             return
         reply = (reply or "").strip()
         if not reply:
@@ -553,6 +696,31 @@ class Window(QMainWindow):
             pass
         self.mode_sig.emit("idle", "")
 
+    def _log_history(self, who, text):
+        self.history.append((who, text))
+        self.history = self.history[-40:]
+        row = QLabel(f"<span style='color:#9A9AA5'>{who}</span>&nbsp;&nbsp;{text}")
+        row.setWordWrap(True)
+        row.setStyleSheet(f"color:{TEXT};background:rgba(255,255,255,0.05);"
+                          "border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:11px 14px;")
+        self.log_lay.insertWidget(self.log_lay.count() - 1, row)
+
+    def _stream(self, chunk):
+        self.reply_label.setText(self.reply_label.text() + chunk)
+
+    def _set_reply(self, text):
+        if not self.reply_label.text().strip():
+            self.reply_label.setText(text)
+
+    def _set_transcript(self, text):
+        self.transcript.setText(text or "")
+        self.transcript.setVisible(bool(text))
+
+    def _set_level(self, level):
+        self.orb.level = level
+        self.wave.level = level
+
+    # ------------------------------------------------------ voice
     def toggle_talk(self):
         if self.mode == "listening":
             self._finish_listening()
@@ -560,10 +728,10 @@ class Window(QMainWindow):
             self._start_listening()
 
     def _start_listening(self):
-        self.heard_sig.emit("")
+        self.reply_label.setText("")
         self.mic = MicStream(); self.mic.start()
         self._started = time.time(); self._silence_since = None
-        self.mode_sig.emit("listening", "")
+        self.mode_sig.emit("listening", "listening…")
         threading.Thread(target=self._pump, daemon=True).start()
 
     def _pump(self):
@@ -572,7 +740,9 @@ class Window(QMainWindow):
             if self.mic is None:
                 return
             if self.mic.error:
-                self.mode_sig.emit("error", self.mic.error); return
+                self.mode_sig.emit("idle", "")
+                self.reply_label.setText(f"⚠ microphone: {self.mic.error}")
+                return
             self.level_sig.emit(self.mic.level)
             now = time.time()
             if self.mic.level > 0.06:
@@ -586,6 +756,7 @@ class Window(QMainWindow):
 
     def _finish_listening(self):
         mic, self.mic = self.mic, None
+        self.transcript_sig.emit("…")
         self.mode_sig.emit("processing", "")
         if mic is None:
             return
@@ -596,25 +767,31 @@ class Window(QMainWindow):
         text, err = voice.transcribe_wav(wav)
         if err or not text:
             self.mode_sig.emit("idle", "")
+            self.transcript_sig.emit("")
             return
-        self.heard_sig.emit("")
+        self.transcript_sig.emit(f"“{text}”")
         self._run_turn(text)
 
-    # ------------------------------------------------------------ slots
+    # ------------------------------------------------------ slots
     def _apply_mode(self, mode, hint):
         self.mode = mode
-        self.orb.mode = {"processing": "processing"}.get(mode, mode)
-        self.status.setText({"idle": "Tap to talk", "listening": "Listening…",
-                             "processing": "Thinking…", "speaking": "Speaking…",
-                             "error": "Something went wrong"}.get(mode, "Tap to talk"))
+        self.orb.mode = mode
+        self.wave.mode = mode
+        if mode == "listening":
+            self.transcript_sig.emit(hint or "listening…")
         if mode in ("listening", "processing"):
-            self.overlay.setVisible(True)
-            self.overlay.setText(hint or ("Listening…" if mode == "listening" else "Thinking…"))
+            self.reply_label.setText("")
+        self._set_visibility(mode, hint)
+        if mode == "idle" and self.history:
+            for i in range(self.chips_row.count()):
+                w = self.chips_row.itemAt(i).widget()
+                if isinstance(w, Pill):
+                    w.setVisible(True)
+                    w.fade_in(140 * i)
 
-    def _apply_level(self, level):
-        self.orb.level = level
+    def _toggle_visible(self):
+        self.hide() if self.isVisible() else self.show()
 
-    # ------------------------------------------------------------ misc
     def _set_voice(self, name):
         from config import save_setting
         save_setting("voice_name", name)
@@ -623,24 +800,12 @@ class Window(QMainWindow):
         import api_check
         threading.Thread(target=api_check.main, daemon=True).start()
 
-    def _toggle_compact(self):
-        if self.width() > 700:
-            self.side.hide(); self.stack.setFixedHeight(340)
-            self.resize(460, 420)
-        else:
-            self.side.show(); self.stack.setFixedHeight(16777215)
-            self.resize(1080, 720)
-
-    def _toggle_visible(self):
-        self.hide() if self.isVisible() else self.show()
-
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Space and not self.entry.hasFocus():
             self.toggle_talk()
         else:
             super().keyPressEvent(e)
 
-    # ------------------------------------------------------------ assistant
     def _on_text(self, chunk):
         self._spoken.append(chunk)
         self.stream_sig.emit(chunk)
@@ -655,13 +820,21 @@ def main():
     sys.exit(app.exec())
 
 
-def _prep(win):
-    win.orb.mode = "listening"; win.orb.level = 0.55
-    win.status.setText("Listening…")
-    win.overlay.setText("listening…")
-    win._add_bubble("user", "open notepad")
-    win._add_bubble("assistant", "Notepad's open — anything else?")
-    win.orb.repaint()
+def _prep(win, mode="listening"):
+    win.orb.mode = mode; win.wave.mode = mode
+    win.orb.level = 0.55; win.wave.level = 0.55
+    win.transcript_sig.emit("“open notepad”")
+    win.reply_label.setText("")
+    win.history_sig.emit("You", "open notepad")
+    win.history_sig.emit("RA", "Notepad's open — anything else?")
+    win._set_visibility(mode, "listening…")
+    if mode == "idle":
+        win.reply_label.setText("Notepad's open — anything else?")
+        for i in range(win.chips_row.count()):
+            w = win.chips_row.itemAt(i).widget()
+            if isinstance(w, Pill):
+                w.setVisible(True)
+                w.graphicsEffect().setOpacity(1.0)
 
 
 def shot(path):
@@ -669,8 +842,9 @@ def shot(path):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication(sys.argv)
     win = Window(); _prep(win); win.show()
-    for _ in range(50):
-        win.orb.phase += 0.05; app.processEvents()
+    for _ in range(60):
+        win.orb.phase += 0.05; win.wave.phase += 0.06
+        app.processEvents()
     win.grab().save(path); print("saved", path)
 
 
@@ -679,7 +853,7 @@ def shot_live(path):
     win = Window(); _prep(win); win.show()
     def grab():
         win.grab().save(path); print("saved", path); app.quit()
-    QTimer.singleShot(1600, grab)
+    QTimer.singleShot(1700, grab)
     app.exec()
 
 
