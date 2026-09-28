@@ -63,7 +63,7 @@ def load_settings():
     data = dict(_DEFAULTS)
     try:
         if SETTINGS_FILE.exists():
-            data.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+            data.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8-sig")))
     except Exception as e:
         print(f"[settings] couldn't read settings.json ({e}); using defaults.")
     return data

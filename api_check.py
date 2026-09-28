@@ -7,9 +7,13 @@ Prints PASS/FAIL plus, on failure, the most likely cause and fix.
 """
 
 import ai_engine
+import config
 
 
 def main():
+    print(f"provider : {config.API_BASE_URL or 'default (Groq)'}")
+    print(f"model    : {config.MODEL_NAME}")
+    print(f"key from : {config.API_KEY_ENV}")
     print("testing the assistant service ...")
     try:
         reply = ai_engine.complete(

@@ -205,14 +205,16 @@ Set `danger=True` if the action is destructive; then the assistant will ask you 
 ## Settings
 
 A `settings.json` is created on first run at `%LOCALAPPDATA%\RealAssistant\settings.json`. Edit it to
-change the model, reply length, or to disable specific tools:
+change the model, reply length, provider, or to disable specific tools:
 
 ```json
 {
-  "model": "openai/gpt-oss-20b",
-  "reasoning_effort": "low",
+  "model": "gemini-3.8-flash",
+  "api_key_env": "GEMINI_API_KEY",
+  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
   "temperature": 0.6,
   "max_tokens": 1024,
+  "reasoning_effort": "low",
   "denied_tools": [],
   "proactive": true,
   "proactive_interval_seconds": 300,
@@ -220,9 +222,21 @@ change the model, reply length, or to disable specific tools:
 }
 ```
 
+### Switching provider
+
+`base_url` + `api_key_env` + `model` let you point at any OpenAI-compatible service.
+
+- **Default (Groq):** leave `base_url` empty, `api_key_env` = `GROQ_API_KEY`,
+  `model` = `openai/gpt-oss-20b`.
+- **Google Gemini:** `base_url` = `https://generativelanguage.googleapis.com/v1beta/openai/`,
+  `api_key_env` = `GEMINI_API_KEY`, `model` = `gemini-3.8-flash` (or `gemini-flash-latest`).
+
+Then put the matching key in `.env` and check it with `run.bat api`.
+
+### Other settings
+
 `confirm_mode` is `"dialog"` (a native yes/no box) or `"chat"` (answer by typing/voice -
-better once the voice layer exists). `reasoning_effort` is `low`/`medium`/`high`; `low` is
-faster and avoids empty replies on gpt-oss.
+better once the voice layer exists). `reasoning_effort` only applies to `gpt-oss` models.
 
 Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant will refuse to run it.
 
