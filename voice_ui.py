@@ -74,8 +74,8 @@ class VoiceUI:
         for size in (260, 210, 160, 116):
             ring = ft.Container(
                 width=size, height=size, border_radius=size,
-                border=ft.border.all(1.5, RING_IDLE),
-                alignment=ft.alignment.center,
+                border=ft.Border.all(1.5, RING_IDLE),
+                alignment=ft.Alignment.CENTER,
                 scale=1.0, opacity=0.9,
             )
             self.rings.append(ring)
@@ -88,7 +88,7 @@ class VoiceUI:
 
         self.orb = ft.GestureDetector(
             content=ft.Stack(controls=self.rings + [self.core],
-                             width=280, height=280, alignment=ft.alignment.center),
+                             width=280, height=280, alignment=ft.Alignment.CENTER),
             on_tap=lambda e: self.toggle_talk(),
         )
 
@@ -101,7 +101,7 @@ class VoiceUI:
 
         self.primary = ft.Container(
             content=ft.Text("Tap to talk", size=15, weight=ft.FontWeight.W_600, color="#ffffff"),
-            bgcolor=ACCENT, border_radius=980, padding=ft.padding.symmetric(16, 30),
+            bgcolor=ACCENT, border_radius=980, padding=ft.Padding.symmetric(vertical=16, horizontal=30),
             on_click=lambda e: self.toggle_talk(), ink=True,
         )
 
@@ -115,7 +115,8 @@ class VoiceUI:
 
         self.typed = ft.TextField(
             hint_text="Type a request and press Enter", autofocus=False,
-            on_submit=self._submit_typed, visible=False, border_color=_op(ft.Colors.WHITE, 0.16),
+            on_submit=self._submit_typed, visible=False,
+            border=ft.OutlineInputBorder(side=ft.BorderSide(width=1, color=_op(ft.Colors.WHITE, 0.16))),
             color=TEXT, hint_style=ft.TextStyle(color=MUTED), text_size=15, width=360,
         )
 
@@ -137,12 +138,12 @@ class VoiceUI:
         )
 
         p.add(ft.Container(
-            expand=True, bgcolor=BG, padding=ft.padding.symmetric(24, 28),
+            expand=True, bgcolor=BG, padding=ft.Padding.symmetric(vertical=24, horizontal=28),
             content=ft.Column(
                 controls=[
                     header,
                     ft.Container(height=8),
-                    ft.Container(content=self.orb, alignment=ft.alignment.center, expand=True),
+                    ft.Container(content=self.orb, alignment=ft.Alignment.CENTER, expand=True),
                     ft.Container(height=6),
                     self.status,
                     ft.Container(height=10),
@@ -166,7 +167,8 @@ class VoiceUI:
         self.voice_dd = ft.Dropdown(
             value=voice.default_voice() or voices[0], width=280, options=[
                 ft.dropdown.Option(v) for v in voices],
-            on_change=self._set_voice, border_color=_op(ft.Colors.WHITE, 0.16),
+            on_select=self._set_voice,
+            border=ft.OutlineInputBorder(side=ft.BorderSide(width=1, color=_op(ft.Colors.WHITE, 0.16))),
             color=TEXT, text_size=14,
         )
         return self.voice_dd
@@ -216,7 +218,7 @@ class VoiceUI:
                 color = RING_IDLE
             ring.scale = scale
             ring.opacity = opacity
-            ring.border = ft.border.all(1.5, color)
+            ring.border = ft.Border.all(1.5, color)
 
         core_target = 1.0
         if self.mode == "listening":
