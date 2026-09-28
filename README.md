@@ -45,7 +45,8 @@ your API key, your memory file, your file paths.
 | `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
 | `proactive.py` | Conservative background watcher that speaks up when it matters. |
 | `main.py` | The console front-end (typing + printing). |
-| `voice_ui.py` | **The voice-first app** (Flet: audio-reactive orb). |
+| `voice_ui.py` | Earlier Flet attempt (kept for reference, superseded by `app_qt.py`). |
+| `app_qt.py` | **The voice-first app** (PySide6/Qt orb + waveform visualiser). |
 | `audio.py` | Live mic level + recording for the visualiser. |
 | `ui_app.py` | Chat-style window launcher (pywebview). |
 | `ui/` | The desktop UI - HTML/CSS/JS, Apple-style. |
@@ -121,25 +122,26 @@ interpreter it's using at startup, and `run.bat` picks your project venv automat
 - **Proactive nudges** - quietly warns about low disk space or low battery
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
 
-## The app (voice-first)
+## The app (voice-first, PySide6/Qt)
 
-The main app is a **voice-first assistant**, not a chat window - pure Python with Flet.
+The main app is a **voice-first assistant** written in pure Python with **PySide6 (Qt)** -
+real desktop widgets and a true custom-painted visualiser (QPainter at 60 fps).
 
 ```powershell
-.\run.bat ui          # or: python voice_ui.py
+.\run.bat ui          # or: python app_qt.py
 ```
 
-- A live **audio-reactive orb**: it breathes when idle, expands and brightens with your
-  voice while listening, orbits while thinking, and pulses while speaking.
-- **Tap the orb** (or the button) to talk; it auto-stops after ~1.2 s of silence.
-- Your words appear as a small caption; the reply is **spoken out loud** and shown briefly.
-- Minimal chrome: a status line, an optional "Type instead" field, and Settings
-  (spoken voice, service check).
-- Colours come from the Apple design system (pure black canvas + a single blue accent).
+- A **glowing orb** with concentric listening rings, plus a **live 44-bar waveform**.
+  The glow, rings and bars all react to your voice while listening, move while thinking,
+  and pulse while speaking.
+- **Tap the orb** (or the button) to talk; it stops itself after ~1.2 s of silence.
+- Your words and the reply appear as short captions, with a **Recent** card for history.
+- Footer: **Type** (keyboard fallback), **History**, **Settings** (spoken voice + service check).
+- Preview render: `preview_ui.png` (captured from the real app).
 
-`run.bat chat` opens the earlier chat-style window (sessions, panels) if you want it.
+`python app_qt.py --shot preview.png` renders a screenshot without a screen (useful for review).
 
-## Desktop app (chat style)
+## Desktop app (chat style, older)
 
 A native window (no browser tab) with a chat UI, saved sessions, side panels and voice.
 
@@ -319,6 +321,7 @@ Once active, it runs the offline self-test on every push and pull request on a W
 - [x] Offline voice front-end (Windows speech engine: TTS + recognition, no API)
 - [x] Desktop app UI (Apple-style: chat, sessions, panels, voice, states)
 - [x] Voice-first app: Flet, audio-reactive orb visualiser, tap-to-talk
+- [x] Rebuilt in PySide6/Qt: custom-painted orb + waveform (Qt is the stack we keep)
 - [x] Voice selection (installed voices + system default) and offline TTS/STT
 - [ ] Custom voice (RVC-style local conversion from a sample)
 - [ ] Deeper browser control (Playwright) and a desktop UI
