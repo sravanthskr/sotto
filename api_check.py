@@ -17,8 +17,9 @@ def main():
     print("testing the assistant service ...")
     try:
         reply = ai_engine.complete(
-            [{"role": "user", "content": "Reply with exactly: ok"}], max_tokens=30)
-        print("[PASS] service reachable ->", repr((reply or "").strip()[:60]))
+            [{"role": "user", "content": "Reply with exactly: ok"}], max_tokens=200)
+        text = (reply or "").strip()
+        print("[PASS] service reachable ->", repr(text[:60]) if text else "(empty reply)")
         return 0
     except Exception as e:
         print("[FAIL]", e)

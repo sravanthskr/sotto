@@ -6,8 +6,11 @@ normalise messages. It knows nothing about tools' internals - main.py wires the
 tool schemas in from tools.py.
 """
 
+import json
 import os
 import time
+import urllib.error
+import urllib.request
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -52,7 +55,7 @@ def _create(**kwargs):
     last = None
     for attempt in range(3):
         try:
-            return get_client().chat.completions.create(**kwargs)
+            return _do_create(**kwargs)
         except Exception as e:
             last = e
             text = str(e).lower()
@@ -66,6 +69,106 @@ def _create(**kwargs):
                 continue
             break
     raise RuntimeError(_friendly(last)) from last
+
+
+# ---------------------------------------------------------------------------
+# Minimal OpenAI-compatible HTTP client (used when base_url points elsewhere)
+# ---------------------------------------------------------------------------
+class _Fn:
+    def __init__(self, name=None, arguments=None):
+        self.name = name
+        self.arguments = arguments
+
+
+class _TC:
+    def __init__(self, index=0, id=None, function=None):
+        self.index = index
+        self.id = id
+        self.function = function
+
+
+class _Msg:
+    def __init__(self, content=None, tool_calls=None, role="assistant"):
+        self.content = content
+        self.tool_calls = tool_calls
+        self.role = role
+
+
+class _Delta:
+    def __init__(self, content=None, tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _Choice:
+    def __init__(self, message=None, delta=None):
+        self.message = message
+        self.delta = delta
+
+
+class _Resp:
+    def __init__(self, choices):
+        self.choices = choices
+
+
+def _http_open(kwargs):
+    url = API_BASE_URL.rstrip("/") + "/chat/completions"
+    key = (os.environ.get(API_KEY_ENV) or os.environ.get("GROQ_API_KEY") or "").strip()
+    request = urllib.request.Request(
+        url, data=json.dumps(kwargs).encode(), method="POST",
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    try:
+        return urllib.request.urlopen(request, timeout=180)
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        raise RuntimeError(f"Error code: {e.code} - {detail}")
+
+
+def _http_parse(resp):
+    data = json.loads(resp.read().decode("utf-8", "replace"))
+    msg = (data.get("choices") or [{}])[0].get("message") or {}
+    calls = None
+    if msg.get("tool_calls"):
+        calls = []
+        for i, tc in enumerate(msg["tool_calls"]):
+            fn = tc.get("function") or {}
+            calls.append(_TC(i, tc.get("id"), _Fn(fn.get("name"), fn.get("arguments"))))
+    return _Resp([_Choice(message=_Msg(msg.get("content"), calls, msg.get("role", "assistant")))])
+
+
+def _http_stream(resp):
+    for raw in resp:
+        line = raw.decode("utf-8", "replace").strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            break
+        try:
+            chunk = json.loads(payload)
+        except Exception:
+            continue
+        delta = (chunk.get("choices") or [{}])[0].get("delta") or {}
+        calls = None
+        if delta.get("tool_calls"):
+            calls = []
+            for tc in delta["tool_calls"]:
+                fn = tc.get("function") or {}
+                calls.append(_TC(tc.get("index", 0), tc.get("id"),
+                                 _Fn(fn.get("name"), fn.get("arguments"))))
+        yield _Resp([_Choice(delta=_Delta(delta.get("content"), calls))])
+
+
+def _do_create(**kwargs):
+    """Route to plain HTTP for non-Groq providers, else the Groq SDK."""
+    if API_BASE_URL:
+        resp = _http_open(kwargs)
+        return _http_stream(resp) if kwargs.get("stream") else _http_parse(resp)
+    return get_client().chat.completions.create(**kwargs)
 
 
 def _friendly(err):
