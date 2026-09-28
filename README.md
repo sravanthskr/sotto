@@ -45,7 +45,9 @@ your API key, your memory file, your file paths.
 | `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
 | `proactive.py` | Conservative background watcher that speaks up when it matters. |
 | `main.py` | The console front-end (typing + printing). |
-| `ui_app.py` | Desktop app launcher (pywebview). |
+| `voice_ui.py` | **The voice-first app** (Flet: audio-reactive orb). |
+| `audio.py` | Live mic level + recording for the visualiser. |
+| `ui_app.py` | Chat-style window launcher (pywebview). |
 | `ui/` | The desktop UI - HTML/CSS/JS, Apple-style. |
 | `ui_bridge.py` | The JS <-> Python bridge for the desktop UI. |
 | `sessions.py` | Saved chats for the desktop UI. |
@@ -119,7 +121,25 @@ interpreter it's using at startup, and `run.bat` picks your project venv automat
 - **Proactive nudges** - quietly warns about low disk space or low battery
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
 
-## Desktop app
+## The app (voice-first)
+
+The main app is a **voice-first assistant**, not a chat window - pure Python with Flet.
+
+```powershell
+.\run.bat ui          # or: python voice_ui.py
+```
+
+- A live **audio-reactive orb**: it breathes when idle, expands and brightens with your
+  voice while listening, orbits while thinking, and pulses while speaking.
+- **Tap the orb** (or the button) to talk; it auto-stops after ~1.2 s of silence.
+- Your words appear as a small caption; the reply is **spoken out loud** and shown briefly.
+- Minimal chrome: a status line, an optional "Type instead" field, and Settings
+  (spoken voice, service check).
+- Colours come from the Apple design system (pure black canvas + a single blue accent).
+
+`run.bat chat` opens the earlier chat-style window (sessions, panels) if you want it.
+
+## Desktop app (chat style)
 
 A native window (no browser tab) with a chat UI, saved sessions, side panels and voice.
 
@@ -298,6 +318,7 @@ Once active, it runs the offline self-test on every push and pull request on a W
 - [x] Core/UI split, move/copy/rename, Chrome profiles, web reading, verbal confirmations
 - [x] Offline voice front-end (Windows speech engine: TTS + recognition, no API)
 - [x] Desktop app UI (Apple-style: chat, sessions, panels, voice, states)
+- [x] Voice-first app: Flet, audio-reactive orb visualiser, tap-to-talk
 - [x] Voice selection (installed voices + system default) and offline TTS/STT
 - [ ] Custom voice (RVC-style local conversion from a sample)
 - [ ] Deeper browser control (Playwright) and a desktop UI
