@@ -108,6 +108,15 @@ You should see `Starting up...`, an `[apps] indexed N shortcuts.` line, and `Rea
 - [ ] `list your voices` / `use the Zira voice` -> voice changes after restart
 - [ ] See `VOICE_GUIDE.md` for adding your own custom voice
 
+## 13. Desktop app
+- [ ] `\run.bat ui` -> a native window opens with the chat UI
+- [ ] Send a message -> text streams in; tool actions show as chips
+- [ ] Click **New chat**, send something, then reopen the old chat from the sidebar
+- [ ] Open the **Memory / Notes / Reminders** tabs in the right rail
+- [ ] Click the **mic** button and speak -> your words land in the box and send
+- [ ] Toggle the **speaker** button -> replies are spoken
+- [ ] With the service down, an **error card with Try again** appears (not a blank screen)
+
 ## What "good" looks like
 
 - Replies are short and human; it never says it's an AI

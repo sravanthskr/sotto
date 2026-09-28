@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RealAssistant</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app" data-od-id="app-shell">
+
+  <aside class="sidebar" data-od-id="sessions">
+    <div class="side-head">
+      <div class="brand">RealAssistant</div>
+      <button class="btn-new" id="new-chat" type="button">New chat</button>
+    </div>
+    <input class="search" id="session-search" type="search" placeholder="Search chats" aria-label="Search chats">
+    <div class="sessions" id="session-list" role="list" aria-live="polite"></div>
+    <div class="side-foot">
+      <button class="tab" type="button" data-panel="memory" aria-pressed="false">Memory</button>
+      <button class="tab" type="button" data-panel="notes" aria-pressed="false">Notes</button>
+      <button class="tab" type="button" data-panel="reminders" aria-pressed="false">Reminders</button>
+    </div>
+  </aside>
+
+  <main class="chat" data-od-id="conversation">
+    <header class="chat-head" data-od-id="context-strip">
+      <div>
+        <h1 id="chat-title">New chat</h1>
+        <p class="meta" id="chat-meta">Connecting…</p>
+      </div>
+      <div class="head-actions">
+        <button class="icon-btn" id="toggle-speak" type="button" aria-pressed="false"
+                title="Speak replies out loud" aria-label="Speak replies out loud">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="messages" id="messages" aria-live="polite" data-od-id="thread"></div>
+
+    <form class="composer" id="composer" data-od-id="composer">
+      <button class="icon-btn" id="mic" type="button" title="Hold to talk" aria-label="Talk">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>
+          <path d="M12 18v3"/>
+        </svg>
+      </button>
+      <textarea id="input" rows="1" placeholder="Ask anything — or say &quot;open notepad&quot;" aria-label="Message"></textarea>
+      <button class="send" id="send" type="submit">Send</button>
+    </form>
+    <div class="hint-row">
+      <span class="kbd">Enter</span> send &nbsp;·&nbsp; <span class="kbd">Shift</span>+<span class="kbd">Enter</span> newline
+    </div>
+  </main>
+
+  <aside class="rail" id="rail" data-od-id="panels" hidden>
+    <div class="rail-head">
+      <h2 id="rail-title">Memory</h2>
+      <button class="icon-btn" id="rail-close" type="button" aria-label="Close panel">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="rail-body" id="rail-body"></div>
+  </aside>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>

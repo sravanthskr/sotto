@@ -10,3 +10,4 @@ sounddevice>=0.4.6
 numpy>=1.26
 vosk>=0.3.45
 faster-whisper>=1.0.0
+pywebview>=5.0

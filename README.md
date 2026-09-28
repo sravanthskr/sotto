@@ -45,6 +45,10 @@ your API key, your memory file, your file paths.
 | `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
 | `proactive.py` | Conservative background watcher that speaks up when it matters. |
 | `main.py` | The console front-end (typing + printing). |
+| `ui_app.py` | Desktop app launcher (pywebview). |
+| `ui/` | The desktop UI - HTML/CSS/JS, Apple-style. |
+| `ui_bridge.py` | The JS <-> Python bridge for the desktop UI. |
+| `sessions.py` | Saved chats for the desktop UI. |
 | `voice.py` | Offline speech: Windows TTS + speech recognition (no API, no GPU). |
 | `voice_main.py` | The hands-free front-end (push-to-talk, voice confirmations). |
 | `voice_convert.py` | Plug-in point for a custom (RVC) voice. |
@@ -114,6 +118,24 @@ interpreter it's using at startup, and `run.bat` picks your project venv automat
 - **System awareness** - CPU/RAM/disk/battery, top processes, network check, list installed apps
 - **Proactive nudges** - quietly warns about low disk space or low battery
 - **Take screenshots** (saved to `Pictures\RealAssistant`)
+
+## Desktop app
+
+A native window (no browser tab) with a chat UI, saved sessions, side panels and voice.
+
+```powershell
+.\run.bat ui          # or: python ui_app.py
+```
+
+- **Chat** with live streaming text and tool-activity chips
+- **Sessions** - chats are saved and listed in the sidebar; reopen one and its context returns
+- **Panels** - Memory / Notes / Reminders in the right rail
+- **Voice** - the mic button dictates; the speaker button speaks replies
+- **States** - proper empty, loading and error states (with retry)
+
+Design: Apple design-system tokens (`design-systems/apple`) - neutral triad
+(`#000000` / `#f5f5f7` / `#ffffff`), single blue accent (`#0071e3`), capsule controls,
+thin chrome. The system font stack is used (no Inter/Roboto).
 
 ## Voice (offline, no API, no GPU)
 
@@ -275,6 +297,7 @@ Once active, it runs the offline self-test on every push and pull request on a W
 - [x] Packaging script (.exe) and CI self-test
 - [x] Core/UI split, move/copy/rename, Chrome profiles, web reading, verbal confirmations
 - [x] Offline voice front-end (Windows speech engine: TTS + recognition, no API)
+- [x] Desktop app UI (Apple-style: chat, sessions, panels, voice, states)
 - [x] Voice selection (installed voices + system default) and offline TTS/STT
 - [ ] Custom voice (RVC-style local conversion from a sample)
 - [ ] Deeper browser control (Playwright) and a desktop UI
