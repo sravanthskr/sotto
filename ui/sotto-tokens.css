@@ -1,0 +1,96 @@
+/* ============================================================
+   SOTTO — design tokens (drop-in)
+   Voice-first assistant · dark (primary) + light "morning paper"
+   Type: Newsreader (voice) · Schibsted Grotesk (UI) · Spline Sans Mono (meta)
+   Usage: include this file once; theme via [data-theme="light"] on <body> or <html>.
+   ============================================================ */
+
+:root {
+  /* —— surfaces & text (dark, primary) —— */
+  --bg:            #0C0E11;   /* page background — near-black ink, never #000 */
+  --bg-sunken:     #090B0D;   /* wells: inputs, code blocks */
+  --surface:       #121519;   /* cards, modules */
+  --surface-2:     #191D22;   /* raised: sheets, menus, controls */
+  --surface-3:     #1F242A;   /* overlay / hover-raise / toasts */
+  --line:          rgba(226,232,240,.07);   /* hairline */
+  --line-strong:   rgba(226,232,240,.14);   /* inputs, stronger dividers */
+  --ink:           #EAEDEF;   /* primary text */
+  --ink-2:         #A7B0B8;   /* secondary text */
+  --ink-3:         #7D8791;   /* tertiary / meta */
+
+  /* —— accent: "glacier" (single accent; spend max 2 visible placements per screen) —— */
+  --accent:        #A9CCDE;
+  --accent-strong: #C9E1EE;
+  --accent-dim:    rgba(169,204,222,.16);
+  --accent-glow:   rgba(169,204,222,.38);   /* presence light only */
+
+  /* —— semantic (reserve <5% of any surface) —— */
+  --danger:        #CE8A7A;   /* calm clay — errors, never alarm-red */
+  --danger-dim:    rgba(206,138,122,.14);
+  --success:       #8DB89A;
+  --warn:          #CBB27A;
+
+  /* —— typography —— */
+  --font-voice: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-ui:    "Schibsted Grotesk", "Segoe UI", -apple-system, Helvetica, Arial, sans-serif;
+  --font-mono:  "Spline Sans Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* —— radius (larger surface → larger radius) —— */
+  --r-xs: 8px;    /* chips, inputs */
+  --r-sm: 12px;   /* small cards */
+  --r-md: 16px;   /* cards, modules */
+  --r-lg: 22px;   /* sheets, large surfaces */
+  --r-xl: 30px;   /* hero surfaces */
+  --r-pill: 999px;
+
+  /* —— motion (one personality: short, front-loaded, purposefully calm) —— */
+  --dur-i: 90ms;    /* press feedback */
+  --dur-f: 150ms;   /* toggles, hovers */
+  --dur-b: 240ms;   /* materialize, chips */
+  --dur-s: 380ms;   /* sheets, surface changes */
+  --dur-settle: 1200ms;   /* respond → idle decay */
+  --ease: cubic-bezier(.2, 0, 0, 1);        /* standard */
+  --ease-soft: cubic-bezier(.3, .6, .25, 1);/* entrances */
+  /* voice presence: critically-damped spring (response ~.5s, no visible bounce) */
+
+  /* —— elevation & blur policy —— */
+  --sheet-shadow: 0 24px 64px rgba(0,0,0,.45);
+  /* blur exists in exactly TWO places: sheet scrims, and the presence field.
+     dark elevation otherwise = tone + hairline only; no drop shadows on cards. */
+}
+
+/* —— light theme: same hierarchy, different physics (not an inversion) —— */
+[data-theme="light"] {
+  --bg:            #F6F7F6;
+  --bg-sunken:     #EEF1F0;
+  --surface:       #FFFFFF;
+  --surface-2:     #EEF1F0;
+  --surface-3:     #E6EAE8;
+  --line:          rgba(23,28,33,.10);
+  --line-strong:   rgba(23,28,33,.20);
+  --ink:           #171B1F;
+  --ink-2:         #4A5258;
+  --ink-3:         #656C74;
+  --accent:        #4A7E9B;   /* fills */
+  --accent-strong: #2F6382;   /* accent text on paper (≥4.5:1) */
+  --accent-dim:    rgba(74,126,155,.12);
+  --accent-glow:   rgba(74,126,155,.20);
+  --danger:        #9E5645;
+  --danger-dim:    rgba(158,86,69,.10);
+  --success:       #5C8467;
+  --warn:          #8F7B44;
+  --sheet-shadow:  0 24px 64px rgba(16,24,32,.16);
+}
+
+/* —— minimal base —— */
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.num, .m-num, .timer-num { font-variant-numeric: tabular-nums; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }

@@ -6,13 +6,14 @@ the assistant runs on a background thread, appends events to a list, and the UI 
 """
 
 import json
+import os
 import threading
 import time
 
 import tools
 import voice
 import voice_convert
-from config import MODEL_NAME
+from config import MODEL_NAME, PROVIDERS
 from core import Assistant
 from sessions import SessionStore
 
@@ -115,6 +116,32 @@ class Api:
         finally:
             self._busy = False
 
+    # ---- live listening (feeds the presence visual) ----------------
+    def listen_start(self):
+        from audio import MicStream
+        self._mic = MicStream()
+        self._mic.start()
+        return json.dumps({"ok": True})
+
+    def listen_level(self):
+        mic = getattr(self, "_mic", None)
+        try:
+            return float(mic.level) if mic else 0.0
+        except Exception:
+            return 0.0
+
+    def listen_stop(self):
+        mic, self._mic = getattr(self, "_mic", None), None
+        if mic is None:
+            return json.dumps("")
+        wav = mic.stop()
+        text, err = voice.transcribe_wav(wav)
+        return json.dumps("" if err else (text or ""))
+
+    def set_voice(self, name):
+        from config import save_setting
+        return json.dumps(bool(save_setting("voice_name", name)))
+
     # ---- side panels ---------------------------------------------------
     def info(self):
         return json.dumps({
@@ -126,6 +153,10 @@ class Api:
             "voices": voice.list_voices(),
             "current_voice": voice.default_voice(),
             "custom_voices": voice_convert.available_voices(),
+            "providers": [
+                {"name": p["name"], "model": p.get("model", ""),
+                 "key": bool(os.environ.get(p.get("api_key_env", ""), "").strip())}
+                for p in PROVIDERS],
         })
 
     # ---- voice ---------------------------------------------------------

@@ -1,77 +1,147 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RealAssistant</title>
-<link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sotto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&family=Schibsted+Grotesk:wght@400;500;600&family=Spline+Sans+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="sotto-tokens.css">
+<link rel="stylesheet" href="sotto.css">
 </head>
-<body>
-<div class="app" id="app" data-od-id="app-shell">
+<body data-theme="dark" data-mode="home" data-state="idle">
 
-  <aside class="sidebar" data-od-id="sessions">
-    <div class="side-head">
-      <div class="brand">RealAssistant</div>
-      <button class="btn-new" id="new-chat" type="button">New chat</button>
+<div class="frame">
+  <header class="top">
+    <div class="brand">
+      <svg class="mark" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <line x1="5" y1="12" x2="19" y2="12" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round"/>
+        <circle cx="12" cy="12" r="3.2" fill="var(--accent-strong)"/>
+      </svg>
+      <span class="word">Sotto</span>
     </div>
-    <input class="search" id="session-search" type="search" placeholder="Search chats" aria-label="Search chats">
-    <div class="sessions" id="session-list" role="list" aria-live="polite"></div>
-    <div class="side-foot">
-      <button class="tab" type="button" data-panel="memory" aria-pressed="false">Memory</button>
-      <button class="tab" type="button" data-panel="notes" aria-pressed="false">Notes</button>
-      <button class="tab" type="button" data-panel="reminders" aria-pressed="false">Reminders</button>
-    </div>
-  </aside>
-
-  <main class="chat" data-od-id="conversation">
-    <header class="chat-head" data-od-id="context-strip">
-      <div>
-        <h1 id="chat-title">New chat</h1>
-        <p class="meta" id="chat-meta">Connecting…</p>
-      </div>
-      <div class="head-actions">
-        <button class="icon-btn" id="toggle-speak" type="button" aria-pressed="false"
-                title="Speak replies out loud" aria-label="Speak replies out loud">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>
-          </svg>
-        </button>
-      </div>
-    </header>
-
-    <div class="messages" id="messages" aria-live="polite" data-od-id="thread"></div>
-
-    <form class="composer" id="composer" data-od-id="composer">
-      <button class="icon-btn" id="mic" type="button" title="Hold to talk" aria-label="Talk">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>
-          <path d="M12 18v3"/>
+    <div class="top-actions">
+      <button class="icon-btn" id="btnHistory" aria-label="History">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3.5 12a8.5 8.5 0 1 0 2.2-5.7"/><path d="M3.5 4.5V9H8"/><path d="M12 8v4.4l2.8 1.7"/>
         </svg>
       </button>
-      <textarea id="input" rows="1" placeholder="Ask anything — or say &quot;open notepad&quot;" aria-label="Message"></textarea>
-      <button class="send" id="send" type="submit">Send</button>
-    </form>
-    <div class="hint-row">
-      <span class="kbd">Enter</span> send &nbsp;·&nbsp; <span class="kbd">Shift</span>+<span class="kbd">Enter</span> newline
+      <button class="icon-btn" id="btnTheme" aria-label="Switch theme">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="btnType" aria-label="Type instead">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>
+        </svg>
+      </button>
     </div>
+  </header>
+
+  <main class="stage">
+    <!-- ── presence ─────────────────────────────────────────── -->
+    <section class="presence-zone">
+      <div class="presence" id="presence" aria-hidden="true">
+        <span class="hit"></span>
+        <i class="field f1"></i><i class="field f2"></i><i class="field f3"></i>
+        <canvas id="thread" width="600" height="240"></canvas>
+      </div>
+      <h1 class="lead" id="lead">Good evening.</h1>
+      <p class="hint" id="hint">Press the mic, or hold Space</p>
+      <div class="chips" id="suggestions">
+        <button class="chip" data-say="What's my system status?"><span class="dot"></span>System status</button>
+        <button class="chip" data-say="Remind me in 10 minutes"><span class="dot"></span>Set a timer</button>
+        <button class="chip" data-say="What's the weather?"><span class="dot"></span>Weather</button>
+        <button class="chip" data-say="Organise my downloads"><span class="dot"></span>Organise downloads</button>
+      </div>
+    </section>
+
+    <!-- ── exchange ─────────────────────────────────────────── -->
+    <section class="exchange" id="exchange" aria-live="polite"></section>
   </main>
 
-  <aside class="rail" id="rail" data-od-id="panels" hidden>
-    <div class="rail-head">
-      <h2 id="rail-title">Memory</h2>
-      <button class="icon-btn" id="rail-close" type="button" aria-label="Close panel">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
-          <path d="M6 6l12 12M18 6L6 18"/>
-        </svg>
+  <!-- ── dock ───────────────────────────────────────────────── -->
+  <div class="dock">
+    <button class="mic" id="mic" aria-label="Talk">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 3.4h6v11a3 3 0 0 1-6 0z"/><path d="M5.5 11.4a6.5 6.5 0 0 0 13 0"/><path d="M12 17.9v2.7"/>
+      </svg>
+      <span class="stop" aria-hidden="true"></span>
+    </button>
+    <span class="dock-hint">SPACE</span>
+  </div>
+</div>
+
+<!-- ── sheets ───────────────────────────────────────────────── -->
+<div class="scrim" id="scrim"></div>
+
+<section class="sheet" id="sheetHistory" role="dialog" aria-modal="true" aria-label="History">
+  <span class="grab"></span>
+  <div class="s-head">
+    <span class="s-title">History</span>
+    <button class="icon-btn" data-close aria-label="Close">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="s-body">
+    <label class="hsearch">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="6.2"/><path d="M19.6 19.6l-3.9-3.9"/></svg>
+      <input id="hSearch" placeholder="Search conversations" aria-label="Search conversations">
+    </label>
+    <div>
+      <div class="hlist" id="hList"></div>
+      <div class="hempty" id="hEmpty">
+        <span class="he-t">Nothing here yet.</span>
+        <span class="he-s">Your conversations will appear here.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sheet" id="sheetType" role="dialog" aria-modal="true" aria-label="Type instead">
+  <span class="grab"></span>
+  <div class="s-head">
+    <span class="s-title">Type instead</span>
+    <button class="icon-btn" data-close aria-label="Close">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="s-body">
+    <div class="typewrap">
+      <input id="typeInput" placeholder="Say it your way…" aria-label="Type instead">
+      <button class="send" id="btnSend" aria-label="Send">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
       </button>
     </div>
-    <div class="rail-body" id="rail-body"></div>
-  </aside>
+    <p class="n-mono" style="font-family:var(--font-mono);font-size:11px;color:var(--ink-3)">Enter to send · Esc to close</p>
+  </div>
+</section>
 
-</div>
-<script src="app.js"></script>
+<section class="sheet" id="sheetSettings" role="dialog" aria-modal="true" aria-label="Settings">
+  <span class="grab"></span>
+  <div class="s-head">
+    <span class="s-title">Settings</span>
+    <button class="icon-btn" data-close aria-label="Close">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="s-body">
+    <span class="group-label">Spoken voice</span>
+    <select id="voiceSelect" class="typewrap" style="padding:12px 14px;color:var(--ink)"></select>
+    <span class="group-label">Model chain</span>
+    <div class="hlist" id="providerList"></div>
+    <div class="rowbetween">
+      <span class="m-label">Speak replies aloud</span>
+      <button class="switch" id="speakSwitch" aria-pressed="true"><i></i></button>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status"><span class="tt" id="toastTag">SOTTO</span><span id="toastMsg"></span></div>
+<p class="sr-only" id="sr" role="status" aria-live="polite"></p>
+
+<script src="sotto.js"></script>
 </body>
 </html>
