@@ -422,6 +422,7 @@ class Window(QMainWindow):
     history_sig = Signal(str, str)
     toast_sig = Signal(str)
     retry_sig = Signal(str)
+    done_sig = Signal()
 
     def __init__(self):
         super().__init__()
@@ -444,6 +445,7 @@ class Window(QMainWindow):
         self.history_sig.connect(self._log_history)
         self.toast_sig.connect(self.show_toast)
         self.retry_sig.connect(self._schedule_retry)
+        self.done_sig.connect(self._flush_speech)
         QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._toggle_visible)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_menu)
 
@@ -771,6 +773,7 @@ class Window(QMainWindow):
         except Exception as e:
             self.mode_sig.emit("idle", "")
             self.transcript_sig.emit("")
+            self._pending = ""
             self.toast_sig.emit(self._human_error(e))
             self.retry_sig.emit(text)
             return
@@ -780,12 +783,8 @@ class Window(QMainWindow):
             self.mode_sig.emit("idle", "")
             return
         self.reply_sig.emit(reply)
-        self.mode_sig.emit("speaking", "")
-        try:
-            voice.speak(reply)
-        except Exception:
-            pass
-        self.mode_sig.emit("idle", "")
+        self._reply_len = len(reply)
+        self.done_sig.emit()
 
     def _schedule_retry(self, text):
         if getattr(self, "_retried", False) or not text:
@@ -805,6 +804,31 @@ class Window(QMainWindow):
 
     def _stream(self, chunk):
         self.reply_label.setText(self.reply_label.text() + chunk)
+        if self.mode == "processing":
+            self.mode_sig.emit("speaking", "")
+        self._pending = getattr(self, "_pending", "") + chunk
+        # speak whole clauses as they arrive - the user hears the answer sooner
+        while True:
+            cut = -1
+            for i, ch in enumerate(self._pending):
+                if ch in ".!?…;:" and (i + 1 >= len(self._pending)
+                                        or self._pending[i + 1] in " \n\t"):
+                    cut = i
+                    break
+            if cut == -1:
+                break
+            clause = self._pending[:cut + 1].strip()
+            self._pending = self._pending[cut + 1:].lstrip()
+            if len(clause) >= 10:
+                voice.say(clause)
+
+    def _flush_speech(self):
+        rest = getattr(self, "_pending", "").strip()
+        if rest:
+            voice.say(rest)
+        self._pending = ""
+        ms = min(14000, max(1200, int(getattr(self, "_reply_len", 60) * 55)))
+        QTimer.singleShot(ms, lambda: self.mode_sig.emit("idle", ""))
 
     def _set_reply(self, text):
         if not self.reply_label.text().strip():
@@ -827,6 +851,7 @@ class Window(QMainWindow):
 
     def _start_listening(self):
         self.reply_label.setText("")
+        self._pending = ""
         self.mic = MicStream(); self.mic.start()
         self._started = time.time(); self._silence_since = None
         self.mode_sig.emit("listening", "listening…")
@@ -847,7 +872,7 @@ class Window(QMainWindow):
                 self._silence_since = None
             elif self._silence_since is None:
                 self._silence_since = now
-            elif now - self._silence_since > 1.2:
+            elif now - self._silence_since > 0.75:
                 self._finish_listening(); return
             if now - self._started > 12:
                 self._finish_listening(); return
@@ -909,7 +934,9 @@ class Window(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    win = Window(); win.assistant.start(); win.assistant.start_watcher(); win.show()
+    win = Window()
+    voice.warm()
+    win.assistant.start(); win.assistant.start_watcher(); win.show()
     sys.exit(app.exec())
 
 

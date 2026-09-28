@@ -1,4 +1,4 @@
-"""
+﻿"""
 config.py - settings, paths, and the assistant's personality.
 
 Everything you might want to tweak lives here (or in settings.json - see below).
@@ -54,7 +54,7 @@ _DEFAULTS = {
     "voice_name": "",             # "" = system default; or e.g. "Microsoft Zira Desktop"
     "voice_rate": 0,              # -10..10 (0 = normal speed)
     "mic_device": None,           # null = system default mic, or an index from mic_test.py
-    "stt_model": "small.en",       # faster-whisper model; try base.en (lighter) or medium.en (better)
+    "stt_model": "base.en",       # faster-whisper model; try base.en (lighter) or medium.en (better)
     "custom_voice": "",           # name of a folder in %LOCALAPPDATA%\RealAssistant\voices
 }
 

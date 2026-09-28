@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import wave
 from pathlib import Path
 
@@ -89,6 +90,86 @@ def speak(text, voice=None, rate=None):
     return _run(script).returncode == 0
 
 
+# ---------------------------------------------------------------------------
+# fast speech output: one persistent SAPI process (no per-line startup cost)
+# ---------------------------------------------------------------------------
+class Speaker:
+    def __init__(self):
+        self.proc = None
+        self.lock = threading.Lock()
+
+    def _ensure(self):
+        if self.proc is not None and self.proc.poll() is None:
+            return
+        select = f"$s.SelectVoice('{_q(VOICE_NAME)}'); " if VOICE_NAME else ""
+        script = ("Add-Type -AssemblyName System.Speech; "
+                  "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                  f"$s.Rate = {int(VOICE_RATE)}; {select}"
+                  "while ($true) { $l = [Console]::In.ReadLine(); "
+                  "if ($l -eq $null) { break }; "
+                  "if ($l.Trim().Length -gt 0) { $s.Speak($l) } }")
+        self.proc = subprocess.Popen(
+            ["powershell", "-NoProfile", "-Command", script],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            text=True, encoding="utf-8", creationflags=_NO_WINDOW)
+
+    def say(self, text):
+        text = (text or "").strip()
+        if not text:
+            return False
+        with self.lock:
+            try:
+                self._ensure()
+                self.proc.stdin.write(text.replace("\n", " ") + "\n")
+                self.proc.stdin.flush()
+                return True
+            except Exception:
+                self.proc = None
+                return False
+
+    def stop(self):
+        try:
+            if self.proc and self.proc.stdin:
+                self.proc.stdin.close()
+            if self.proc:
+                self.proc.terminate()
+        except Exception:
+            pass
+        self.proc = None
+
+
+_speaker = None
+
+
+def speaker():
+    global _speaker
+    if _speaker is None:
+        _speaker = Speaker()
+    return _speaker
+
+
+def say(text):
+    """Speak without blocking the caller (used for streamed sentences)."""
+    return speaker().say(text)
+
+
+def stop_speaking():
+    global _speaker
+    if _speaker is not None:
+        _speaker.stop()
+        _speaker = None
+
+
+def warm():
+    """Preload the speech-to-text model so the first request isn't slow."""
+    def _load():
+        try:
+            _whisper()
+        except Exception:
+            pass
+    threading.Thread(target=_load, daemon=True).start()
+
+
 def speak_to_wav(text, path, voice=None, rate=None):
     """Render speech to a .wav file (used for testing, and for voice conversion later)."""
     text = (text or "").strip()
@@ -158,7 +239,10 @@ def _whisper():
         return _WHISPER_CACHE["model"]
     try:
         from faster_whisper import WhisperModel
-        _WHISPER_CACHE["model"] = WhisperModel(name, device="cpu", compute_type="int8")
+        import os as _os
+        threads = min(8, _os.cpu_count() or 4)
+        _WHISPER_CACHE["model"] = WhisperModel(name, device="cpu", compute_type="int8",
+                                               cpu_threads=threads)
         _WHISPER_CACHE["name"] = name
         return _WHISPER_CACHE["model"]
     except Exception:
