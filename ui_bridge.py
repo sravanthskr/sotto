@@ -361,6 +361,22 @@ class Api:
             rows = []
         return json.dumps(rows)
 
+    def scan_apps(self):
+        import time as _t
+        t0 = _t.time()
+        try:
+            tools.build_app_index()
+            count = len(tools.APP_INDEX)
+            from config import save_setting
+            save_setting("scan_done", True)
+            save_setting("scan_count", count)
+            took = round(_t.time() - t0, 2)
+            _log(f"scan_apps: {count} apps in {took}s")
+            return json.dumps({"count": count, "took": took})
+        except Exception as e:
+            _log(f"scan_apps failed: {e}")
+            return json.dumps({"count": 0, "took": 0, "error": str(e)[:150]})
+
     def set_sound(self, on):
         from config import save_setting
         return json.dumps(bool(save_setting("sound_effects", bool(on))))
@@ -388,6 +404,7 @@ class Api:
         return json.dumps({
             "model": MODEL_NAME,
             "apps": len(tools.APP_INDEX),
+            "scan_needed": not bool(config.load_settings().get("scan_done")),
             "memory": self.assistant.memory.facts(),
             "notes": [n["text"] for n in self.assistant.notes.list(50)],
             "reminders": self.assistant.reminders.list(),

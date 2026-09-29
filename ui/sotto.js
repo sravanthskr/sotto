@@ -893,6 +893,21 @@
   }
 
   /* ------------------------------------------------------------- boot */
+  /* ------------------------------------------------------------- scan */
+  async function runAppScan() {
+    const btn = $('#btnScan');
+    if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+    let n = 0, took = 0;
+    try {
+      const d = JSON.parse((await callIf('scan_apps')) || '{}');
+      n = d.count || 0; took = d.took || 0;
+    } catch {}
+    if (btn) { btn.disabled = false; btn.textContent = n ? 'Scan again' : 'Scan now'; }
+    const out = $('#scanCount');
+    if (out) out.textContent = n ? (n + ' apps ready — rescan when you install something new') : 'No shortcuts found — try again';
+    toast(n ? ('Found ' + n + ' apps on this computer') : 'Nothing found', 'SCAN', 2600);
+  }
+
   async function boot() {
     sizeCanvas();
     requestAnimationFrame(draw);
@@ -914,6 +929,11 @@
             `<div class="result"><span class="r-top"><span class="r-name">${escapeHtml(p.name)}</span><span class="r-meta">${p.key ? 'KEY SET' : 'NO KEY'}</span></span><span class="r-take">${escapeHtml(p.model || '')}</span></div>`).join('');
         }
         if (info.version) $('#aboutLine').textContent = 'Sotto · ' + info.version;
+        if (info.apps) $('#scanCount').textContent = info.apps + ' apps ready — rescan anytime';
+        if (info.scan_needed) {
+          showPrompt('First time here? Let me look at what\u2019s installed on this computer once — then I can open your apps by name. Rescan anytime in Settings.',
+            { action: 'Scan now', onAction: () => runAppScan() });
+        }
       } catch {}
     }
     const h = new Date().getHours();
@@ -963,6 +983,7 @@
     });
 
     $('#voiceSelect').addEventListener('change', (e) => callIf('set_voice', e.target.value));
+    $('#btnScan').addEventListener('click', () => runAppScan());
     $('#btnVoiceTest').addEventListener('click', () => {
       const btn = $('#btnVoiceTest');
       if (speaking) { stopSpeaking(true); btn.textContent = 'Test'; return; }
