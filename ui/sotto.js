@@ -22,6 +22,7 @@
   let speaking = false;
   let lastMsg = '';
   let speakAloud = true;
+  let retries = 0;
   const history = [];
   let stateSince = performance.now();
 
@@ -197,7 +198,7 @@
   /* --------------------------------------------------------- theme */
   const SUN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"/></svg>';
   const MOON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.5 8.5 0 1 0 10.2 10.2z"/></svg>';
-  let themePref = 'dark';
+  let themePref = 'light';
   const systemLight = () => window.matchMedia('(prefers-color-scheme: light)').matches;
   function resolveTheme(pref) { return pref === 'system' ? (systemLight() ? 'light' : 'dark') : (pref === 'light' ? 'light' : 'dark'); }
   function applyThemePref(pref, notify = false) {
@@ -476,9 +477,10 @@
   let speakingFallback = null;
   function speakFallbackTimer(text, factor = 1) { clearTimeout(speakingFallback); speakingFallback = setTimeout(() => setSpeaking(false), Math.min(45000, 1200 + String(text || '').length * 62 * factor)); }
 
-  async function send(text, viaVoice = false) {
+  async function send(text, viaVoice = false, isRetry = false) {
     text = (text || '').trim();
     if (!text) return;
+    if (!isRetry) retries = 0;
     if (speaking) stopSpeaking(true);
     lastMsg = text;
     setMode('exchange');
@@ -506,6 +508,7 @@
         else if (e.type === 'speaking_end') { setSpeaking(false); }
         else if (e.type === 'learned') { /* quiet */ }
         else if (e.type === 'done') {
+          retries = 0;
           if (!said && e.text) { setState('responding'); streamWord(voice, e.text); }
           const answer = e.full || (voice.textContent || '').trim();
           if (answer) respActions(turn, answer);
@@ -515,7 +518,14 @@
         else if (e.type === 'error') {
           addNotice(turn, e.text);
           setState('idle');
-          toast('Something went wrong — I’ll try again', 'NOTICE', 3600);
+          if (retries < 2) {
+            retries += 1;
+            const delay = retries === 1 ? 4000 : 30000;
+            toast(retries === 1 ? 'Trying again — one moment…' : 'One more try…', 'NOTICE', 3600);
+            setTimeout(() => { if (lastMsg === text) send(lastMsg, viaVoice === true, true); }, delay);
+          } else {
+            toast('I couldn’t reach my thinking service — connection hiccup.', 'NOTICE', 4200);
+          }
         }
       }
       let busy = true;
@@ -802,7 +812,7 @@
     // theme: default dark; explicit choice persists; "system" follows the OS
     let savedTheme = null;
     try { savedTheme = localStorage.getItem('sotto-theme-v2'); } catch {}
-    applyThemePref(savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system' ? savedTheme : 'dark');
+    applyThemePref(savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system' ? savedTheme : 'light');
 
     /* presence affordances: ready state on hover / before listening */
     const presenceEl = $('#presence');

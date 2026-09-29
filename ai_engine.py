@@ -194,6 +194,17 @@ def _do_create(**kwargs):
 # ---------------------------------------------------------------------------
 # public calls
 # ---------------------------------------------------------------------------
+def _soonest_cooldown():
+    """Seconds until the soonest benched provider frees up, or None."""
+    try:
+        now = time.time()
+        pending = [max(0.0, v - now) for v in _STATE.get("fail_until", {}).values()]
+        pending = [x for x in pending if x > 0]
+        return min(pending) if pending else None
+    except Exception:
+        return None
+
+
 def _create(**kwargs):
     last = None
     for attempt in range(2):
@@ -208,6 +219,11 @@ def _create(**kwargs):
             if attempt == 0 and any(t in text for t in ("503", "502", "timeout", "demand")):
                 time.sleep(4)
                 continue
+            if attempt == 0 and "every provider failed" in text:
+                wait_s = _soonest_cooldown()
+                if wait_s is not None and wait_s <= 30:
+                    time.sleep(wait_s + 0.8)
+                    continue
             break
     raise RuntimeError(_friendly(last)) from last
 

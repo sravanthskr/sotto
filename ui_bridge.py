@@ -127,7 +127,14 @@ class Api:
             self._push({"type": "done", "text": reply})
             self._push({"type": "session", "session": self.session})
         except Exception as e:
-            self._push({"type": "error", "text": str(e)})
+            msg = str(e)
+            low = msg.lower()
+            if any(k in low for k in ("provider", "llm", "503", "429", "timed out", "timeout", "unreachable", "connection")):
+                short = "I couldn't reach my thinking service just now — trying again."
+            else:
+                short = "Something went wrong on my side — trying again."
+            print("ask error:", msg)
+            self._push({"type": "error", "text": short})
         finally:
             self._busy = False
 
