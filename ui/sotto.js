@@ -491,13 +491,15 @@
     setState('thinking');
     const api = bridge();
     if (!api) { addNotice(turn, 'The Python bridge isn’t connected, so I can’t think yet. Start the app normally and try again.'); setState('idle'); return; }
-    try { await api.send(text); } catch { addNotice(turn, 'The request didn’t reach the assistant.'); setState('idle'); return; }
+    callIf('log', 'send ' + (viaVoice ? 'voice' : 'typed') + (isRetry ? ' retry' : '') + ': ' + text.slice(0, 90));
+    try { await api.send(text); callIf('log', 'send resolved'); } catch (err) { callIf('log', 'send rejected: ' + err); addNotice(turn, 'The request didn’t reach the assistant.'); setState('idle'); return; }
     const voice = addVoice(turn);
     turn.querySelector('.thinking')?.remove();
     let said = false;
     const poll = setInterval(async () => {
       let events = [];
       try { events = JSON.parse((await api.poll()) || '[]'); } catch {}
+      if (events.length) callIf('log', 'poll: ' + events.map((x) => x.type).join(','));
       for (const e of events) {
         if (e.type === 'intent' && e.text) { intentChip.querySelector('.chip').innerHTML = '<span class="dot"></span>' + escapeHtml(e.text); }
         else if (e.type === 'text') { if (!said) { said = true; setState('responding'); } streamWord(voice, e.text); }
@@ -508,6 +510,7 @@
         else if (e.type === 'speaking_end') { setSpeaking(false); }
         else if (e.type === 'learned') { /* quiet */ }
         else if (e.type === 'done') {
+          callIf('log', 'done');
           retries = 0;
           if (!said && e.text) { setState('responding'); streamWord(voice, e.text); }
           const answer = e.full || (voice.textContent || '').trim();
@@ -516,6 +519,7 @@
           followups(turn, e.followups || ['Tell me more', 'Do that again', 'Never mind']);
         }
         else if (e.type === 'error') {
+          callIf('log', 'error event: ' + (e.text || ''));
           addNotice(turn, e.text);
           setState('idle');
           if (retries < 2) {
@@ -531,6 +535,7 @@
       let busy = true;
       try { busy = await api.busy(); } catch {}
       if (!busy && events.length === 0) {
+        callIf('log', 'settle busy=false');
         clearInterval(poll);
         if (state === 'thinking' || state === 'understanding') setState('responding');
         setTimeout(() => { if (state !== 'listening' && state !== 'interrupted') setState('idle'); }, reducedMedia.matches ? 150 : 1200);

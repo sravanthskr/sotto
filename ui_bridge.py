@@ -10,6 +10,8 @@ import os
 import re
 import threading
 import time
+import traceback
+from pathlib import Path
 
 import tools
 import voice
@@ -17,6 +19,23 @@ import voice_convert
 from config import MODEL_NAME, PROVIDERS
 from core import Assistant
 from sessions import SessionStore
+
+LOG_FILE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "RealAssistant" / "ui.log"
+
+
+def _log(msg):
+    """Append one line to ui.log so any stall can be diagnosed after the fact."""
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if LOG_FILE.stat().st_size > 2_000_000:
+                LOG_FILE.unlink()
+        except Exception:
+            pass
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%H:%M:%S ") + str(msg)[:600] + "\n")
+    except Exception:
+        pass
 
 
 def _status_rows(text):
@@ -46,6 +65,7 @@ class Api:
 
     # ---- event queue (the UI polls this) -------------------------------
     def _push(self, event):
+        _log(f"evt {event.get('type')} {str(event.get('text') or event.get('name') or '')[:90]!r}")
         with self._lock:
             self._events.append(event)
 
@@ -102,6 +122,7 @@ class Api:
     # ---- chat ----------------------------------------------------------
     def send(self, text):
         text = (text or "").strip()
+        _log(f"send() called with {text[:120]!r}")
         if not text:
             return json.dumps({"ok": False})
         if self.session is None:
@@ -128,6 +149,7 @@ class Api:
             self._push({"type": "session", "session": self.session})
         except Exception as e:
             msg = str(e)
+            _log("ASK ERROR: " + traceback.format_exc()[:900])
             low = msg.lower()
             if any(k in low for k in ("provider", "llm", "503", "429", "timed out", "timeout", "unreachable", "connection")):
                 short = "I couldn't reach my thinking service just now — trying again."
@@ -158,7 +180,12 @@ class Api:
             return json.dumps("")
         wav = mic.stop()
         text, err = voice.transcribe_wav(wav)
+        _log(f"listen_stop -> {str(text)[:120]!r} err={err}")
         return json.dumps("" if err else (text or ""))
+
+    def log(self, msg):
+        _log("js: " + str(msg)[:300])
+        return json.dumps(True)
 
     def set_voice(self, name):
         from config import save_setting
