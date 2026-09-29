@@ -21,6 +21,7 @@ from core import Assistant
 from sessions import SessionStore
 
 LOG_FILE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "RealAssistant" / "ui.log"
+_SENT_RE = re.compile(r'[.!?…]{1,3}\s')
 
 
 def _log(msg):
@@ -51,12 +52,18 @@ class Api:
     def __init__(self, on_ready=None):
         self.store = SessionStore()
         self.assistant = Assistant(on_text=self._on_text, on_tool=self._on_tool,
-                                    on_learned=self._on_learned)
+                                    on_learned=self._on_learned, on_status=self._on_status)
         self.session = None
         self._events = []
         self._lock = threading.Lock()
         self._busy = False
         self._thread = None
+        self._buf = ""
+        self._speak_muted = False
+        self._last_reply = ""
+        self._last_status = None
+        self._turn_checked = False
+        self._turn_leak = False
 
     # ---- lifecycle -----------------------------------------------------
     def start(self):
@@ -79,9 +86,50 @@ class Api:
 
     # ---- assistant callbacks -------------------------------------------
     def _on_text(self, chunk):
-        self._push({"type": "text", "text": chunk})
+        """Buffer streamed text and flush it as whole sentences, so speech
+        starts with the first sentence instead of waiting for the whole reply."""
+        self._buf += chunk
+        while True:
+            m = _SENT_RE.search(self._buf)
+            if m and m.end() >= 2:
+                sentence, self._buf = self._buf[:m.end()].strip(), self._buf[m.end():]
+                if sentence:
+                    self._flush_say(sentence)
+                continue
+            if len(self._buf) > 220:
+                cut = self._buf.rfind(" ", 0, 200)
+                if cut > 40:
+                    piece, self._buf = self._buf[:cut].strip(), self._buf[cut + 1:]
+                    if piece:
+                        self._flush_say(piece)
+                    continue
+            break
+
+    def _flush_say(self, text):
+        text = (text or "").strip()
+        if not text:
+            return
+        if not self._turn_checked:
+            self._turn_checked = True
+            low = text.lower()
+            if any(m in low for m in ("the user is asking", "the user wants", "i should check",
+                                      "i need to check", "let me use", "let me check what", "i can use")):
+                self._turn_leak = True
+                _log("leak-guard: holding back planning text")
+        if self._turn_leak:
+            return
+        kind = "text" if self._speak_muted else "say"
+        self._push({"type": kind, "text": text + " "})
+
+    def _on_status(self, state):
+        if state == self._last_status:
+            return
+        self._last_status = state
+        if state == "thinking":
+            self._push({"type": "state", "name": "thinking", "label": "Thinking."})
 
     def _on_tool(self, name, args, result):
+        self._push({"type": "state", "name": "acting", "label": "Working on it…"})
         event = {"type": "tool", "name": name, "result": str(result)}
         if name == "system_status":
             rows = _status_rows(str(result))
@@ -125,6 +173,18 @@ class Api:
         _log(f"send() called with {text[:120]!r}")
         if not text:
             return json.dumps({"ok": False})
+        self._buf = ""
+        self._speak_muted = False
+        self._last_status = None
+        self._turn_checked = False
+        self._turn_leak = False
+        low = text.lower().strip(" .!?")
+        if self._last_reply and low in ("repeat that", "say that again", "say it again", "repeat", "again", "repeat it"):
+            self._start_replay({"type": "speak_only", "text": self._last_reply})
+            return json.dumps({"ok": True})
+        if self._last_reply and low in ("say it slower", "speak slower", "slower", "slow down"):
+            self._start_replay({"type": "speak_only", "text": self._last_reply, "rate": 0.8})
+            return json.dumps({"ok": True})
         if self.session is None:
             self.session = self.store.create("New chat")
             self.assistant.turns = []
@@ -138,19 +198,58 @@ class Api:
         self._thread.start()
         return json.dumps({"ok": True})
 
+    def _start_replay(self, event):
+        """Replay the last answer by voice — no LLM call, instant."""
+        def run():
+            try:
+                self._push(event)
+                self._push({"type": "done", "text": "", "full": "", "followups": []})
+            finally:
+                self._busy = False
+        self._busy = True
+        threading.Thread(target=run, daemon=True).start()
+
+    def _repair(self, draft):
+        """A weak model leaked planning/meta text — rewrite it into a clean answer."""
+        import ai_engine
+        _log("repair: rewriting planning-leaked reply")
+        self._turn_leak = False
+        self._turn_checked = True
+        fixed = ""
+        try:
+            fixed = (ai_engine.complete([
+                {"role": "system", "content": "Rewrite the draft as the final reply to the user: "
+                 "one or two short plain sentences, first person, no planning, no meta-commentary, "
+                 "no mention of tools or commands."},
+                {"role": "user", "content": draft[:1500]},
+            ], max_tokens=300) or "").strip()
+        except Exception as e:
+            _log(f"repair failed: {e}")
+        if fixed:
+            self._flush_say(fixed)
+            return fixed
+        _log("repair produced nothing")
+        return ""
+
     def _run(self, text):
         try:
             reply = self.assistant.ask(text)
+            rem, self._buf = self._buf.strip(), ""
+            if rem:
+                self._flush_say(rem)
+            if self._turn_leak:
+                reply = self._repair(reply or "")
             if not (reply or "").strip():
                 _log("EMPTY reply from ask() -> error event (turn never dies silently)")
                 self._push({"type": "error",
                             "text": "I didn't get a usable response — one more try…"})
                 return
+            self._last_reply = reply
             self.session.setdefault("messages", []).append(
                 {"role": "assistant", "text": reply, "ts": time.time()})
             self.session["turns"] = self.assistant.turns
             self.store.save(self.session)
-            self._push({"type": "done", "text": reply})
+            self._push({"type": "done", "text": "", "full": reply})
             self._push({"type": "session", "session": self.session})
         except Exception as e:
             msg = str(e)
@@ -206,6 +305,7 @@ class Api:
         return json.dumps({"online": True, "provider": active or MODEL_NAME, "state": "ready"})
 
     def stop_speaking(self):
+        self._speak_muted = True
         try:
             voice.stop_speaking()
         except Exception:

@@ -90,6 +90,8 @@
       ctx.beginPath(); ctx.arc(W / 2, mid, 15, 0, Math.PI * 2); ctx.strokeStyle = cssVar('--accent'); ctx.globalAlpha = 0.3; ctx.lineWidth = 1.8; ctx.stroke();
       ctx.beginPath(); ctx.arc(W / 2, mid, 15, -0.6, Math.PI * 0.5); ctx.globalAlpha = 0.95; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); ctx.globalAlpha = 1;
     }
+    else if (state === 'acting') { line(pad, mid, W - pad, mid, 1.8, 0.4); dot(W * 0.66, mid, 3.4, cssVar('--accent-strong')); }
+    else if (state === 'waiting') { strokeWave(W / 2 - W * 0.16, W / 2 + W * 0.16, 1, { freq: 4, speed: 0, w: 2, alpha: 0.8 }); dot(W / 2, mid, 3.8, cssVar('--accent-strong')); }
     else if (state === 'responding') { strokeWave(pad, W - pad, 8 + amp * 24, { freq: 7.2, speed: 0, w: 2.2, alpha: 0.95, halo: true }); dot(W / 2, mid, 2.4, cssVar('--accent-strong')); }
     else if (state === 'ready') { strokeWave(W / 2 - W * 0.34, W / 2 + W * 0.34, 1.5, { freq: 5, speed: 0, w: 2, alpha: 0.9 }); dot(W / 2, mid, 3.8, cssVar('--accent-strong')); }
     else if (state === 'interrupted') { strokeWave(W * 0.3, W * 0.7, 1, { freq: 7.2, speed: 0, w: 2, alpha: 0.5 }); }
@@ -133,6 +135,18 @@
       ctx.beginPath(); ctx.arc(W / 2, mid, r, phase * 0.55, phase * 0.55 + Math.PI * 0.6);
       ctx.globalAlpha = 0.95; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke();
       ctx.globalAlpha = 1;
+    } else if (state === 'acting') {
+      /* working: a light travelling the line — progress, not thinking */
+      line(pad, mid, W - pad, mid, 1.8, 0.4);
+      const tpos = pad + ((phase * 0.22) % 1) * (W - pad * 2);
+      ctx.beginPath(); ctx.arc(tpos, mid, 9, 0, Math.PI * 2);
+      ctx.strokeStyle = cssVar('--accent'); ctx.globalAlpha = 0.3; ctx.lineWidth = 1.6; ctx.stroke(); ctx.globalAlpha = 1;
+      dot(tpos, mid, 3.4, cssVar('--accent-strong'));
+    } else if (state === 'waiting') {
+      /* attending rest: the filament stays, the dot breathes for attention */
+      strokeWave(W / 2 - W * 0.16, W / 2 + W * 0.16, 1, { freq: 4, speed: 0.5, w: 2, alpha: 0.7 });
+      const blink = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin((phase * 2 * Math.PI) / 3));
+      ctx.globalAlpha = blink; dot(W / 2, mid, 3.8, cssVar('--accent-strong')); ctx.globalAlpha = 1;
     } else if (state === 'responding') {
       /* the assistant talks — softer, slower, rounder than listening; a faint halo for presence */
       strokeWave(pad, W - pad, 3 + shown * 34, { freq: 7.2, speed: 2.2, w: 2.2, halo: true });
@@ -160,11 +174,12 @@
   /* ------------------------------------------------- state machine */
   const LABEL = {
     idle: 'Tap to talk', ready: 'Ready', listening: 'Listening…', understanding: 'Understood',
-    thinking: 'Thinking…', responding: '', interrupted: 'Stopped', denied: 'Microphone unavailable', offline: 'Offline',
+    thinking: 'Thinking…', acting: 'Working…', waiting: 'Waiting for you', responding: '', interrupted: 'Stopped', denied: 'Microphone unavailable', offline: 'Offline',
   };
   const HINT = {
     idle: 'Press the mic, or hold Space', ready: 'Listening…',
     listening: 'Speak — pause when you’re done', thinking: 'Thinking…',
+    acting: 'Working on it…', waiting: 'Waiting for you — speak, type, or tap an option',
   };
 
   function setState(next) {
@@ -183,6 +198,52 @@
     body.classList.toggle('speaking', on);
     const mic = $('#mic');
     if (mic) mic.setAttribute('aria-label', on ? 'Stop speaking' : 'Talk');
+  }
+
+  /* ---- speech out: browser TTS in the prototype, bridge TTS in production ---- */
+  const synth = window.speechSynthesis || null;
+  let voiceMap = null;
+  function pickVoice() {
+    if (!synth) return null;
+    if (!voiceMap || !voiceMap.length) voiceMap = synth.getVoices();
+    const sel = $('#voiceSelect');
+    if (!sel || !voiceMap || !voiceMap.length) return null;
+    const en = voiceMap.filter(v => /^en/i.test(v.lang));
+    const idx = Math.max(0, Array.from(sel.options).findIndex(o => o.value === sel.value));
+    return en[idx] || voiceMap[idx] || en[0] || null;
+  }
+  const speechQueue = [];
+  function endSpeech() {
+    setSpeaking(false);
+    const n = speechQueue.shift();
+    if (n) { speak(n.text, n.opts); return; }
+    if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
+  }
+  function speak(text, opts) {
+    opts = opts || {};
+    if (!text) { endSpeech(); return; }
+    if (speaking) { speechQueue.push({ text, opts }); return; }
+    setSpeaking(true);
+    if (synth && !reducedMedia.matches && !body.classList.contains('reduce-motion')) {
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = opts.rate || 1;
+        const v = pickVoice(); if (v) u.voice = v;
+        u.onend = endSpeech; u.onerror = endSpeech;
+        try { synth.cancel(); } catch {}
+        synth.speak(u);
+        return;
+      } catch (e) {}
+    }
+    speakFallbackTimer(text, opts.rate && opts.rate < 1 ? 1.5 : 1);
+  }
+  function stopLip() { try { synth && synth.cancel(); } catch {} speechQueue.length = 0; }
+  function speakOut(text, opts) {
+    if (!speakAloud || !text) { if (!text) endSpeech(); return; }
+    if (opts && opts.rate && opts.rate < 1 && hasApi('say_slow')) callIf('say_slow', text);
+    else callIf('say', text);
+    setSpeaking(true);
+    speakFallbackTimer(text, opts && opts.rate && opts.rate < 1 ? 1.5 : 1);
   }
 
   /* --------------------------------------------------------- toast */
@@ -254,10 +315,12 @@
     turn.appendChild(el);
     return el;
   }
-  function addThinking(turn) {
+  function addThinking(turn, label) {
     const el = document.createElement('div');
     el.className = 'thinking';
-    el.innerHTML = `<span class="tpulse"></span><span>THINKING</span>`;
+    const p = document.createElement('span'); p.className = 'tpulse';
+    const s = document.createElement('span'); s.textContent = label || 'THINKING';
+    el.appendChild(p); el.appendChild(s);
     turn.appendChild(el);
     return el;
   }
@@ -343,14 +406,14 @@
       if (Number.isNaN(v)) return generic(turn, e);
       const el = document.createElement('div');
       el.className = 'module';
-      el.innerHTML = `<div class="m-row"><span class="m-meta">Volume</span><span class="m-label" id="volVal">${v}%</span></div>
-        <input class="range" id="volRange" type="range" min="0" max="100" value="${v}" aria-label="Volume">
-        <div class="m-row"><span class="m-label">${p.muted ? 'Muted' : 'Output — default device'}</span><button class="m-quiet" id="volMute">${p.muted ? 'Unmute' : 'Mute'}</button></div>`;
+      el.innerHTML = `<div class="m-row"><span class="m-meta">Volume</span><span class="m-label vol-val">${v}%</span></div>
+        <input class="range vol-range" type="range" min="0" max="100" value="${v}" aria-label="Volume">
+        <div class="m-row"><span class="m-label">${p.muted ? 'Muted' : 'Output — default device'}</span><button class="m-quiet vol-mute">${p.muted ? 'Unmute' : 'Mute'}</button></div>`;
       turn.querySelector('.resp').appendChild(el);
-      const range = el.querySelector('#volRange'); const val = el.querySelector('#volVal');
+      const range = el.querySelector('.vol-range'); const val = el.querySelector('.vol-val');
       let send_t;
       range.addEventListener('input', () => { val.textContent = range.value + '%'; clearTimeout(send_t); send_t = setTimeout(() => callIf('set_volume', Number(range.value)), 160); });
-      el.querySelector('#volMute').addEventListener('click', (ev) => { callIf('media_control', 'mute_toggle'); ev.target.textContent = ev.target.textContent === 'Mute' ? 'Unmute' : 'Mute'; toast('Toggled mute', 'SYSTEM', 1600); });
+      el.querySelector('.vol-mute').addEventListener('click', (ev) => { callIf('media_control', 'mute_toggle'); ev.target.textContent = ev.target.textContent === 'Mute' ? 'Unmute' : 'Mute'; toast('Toggled mute', 'SYSTEM', 1600); });
     },
     media(turn, e) {
       const p = e.payload || e;
@@ -367,18 +430,18 @@
           <span class="art"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18.5V6.8l10-2v11.7"/><circle cx="6.6" cy="18.5" r="2.6"/><circle cx="16.6" cy="16.5" r="2.6"/></svg></span>
           <div style="flex:1;min-width:0"><div class="m-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(p.title || 'Now playing')}</div><div class="m-sub">${escapeHtml(p.artist || '')}${p.album ? ' — ' + escapeHtml(p.album) : ''}</div></div>
           <button class="nav" data-mc="prev" aria-label="Previous track"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6.5L8.5 12l6.5 5.5"/></svg></button>
-          <button class="btn-silent" id="muToggle" style="min-width:44px;padding:10px 12px" aria-label="Play or pause"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M9 6.5v11M15 6.5v11"/></svg></button>
+          <button class="btn-silent mu-toggle" style="min-width:44px;padding:10px 12px" aria-label="Play or pause"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M9 6.5v11M15 6.5v11"/></svg></button>
           <button class="nav" data-mc="next" aria-label="Next track"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6.5l6.5 5.5L9 17.5"/></svg></button>
         </div>
-        <div class="prog"><i id="muProg"></i></div>
-        <div class="times"><span id="muCur">${fmt(p.pos || 0)}</span><span>${fmt(p.dur || 0)}</span></div>`;
+        <div class="prog"><i class="mu-prog"></i></div>
+        <div class="times"><span class="mu-cur">${fmt(p.pos || 0)}</span><span>${fmt(p.dur || 0)}</span></div>`;
       turn.querySelector('.resp').appendChild(el);
       el.querySelectorAll('[data-mc]').forEach(b => b.addEventListener('click', () => { callIf('media_control', b.dataset.mc); toast(b.dataset.mc === 'next' ? 'Next track' : 'Previous track', 'MEDIA', 1400); }));
       let pos = Number(p.pos || 0), dur = Number(p.dur || 0), playing = p.playing !== false;
-      const upd = () => { el.querySelector('#muProg').style.width = dur ? ((pos / dur) * 100).toFixed(2) + '%' : '0%'; el.querySelector('#muCur').textContent = fmt(pos); };
+      const upd = () => { el.querySelector('.mu-prog').style.width = dur ? ((pos / dur) * 100).toFixed(2) + '%' : '0%'; el.querySelector('.mu-cur').textContent = fmt(pos); };
       upd();
       const iv = setInterval(() => { if (!el.isConnected) return clearInterval(iv); if (playing && dur) { pos = Math.min(dur, pos + 1); upd(); } }, 1000);
-      el.querySelector('#muToggle').addEventListener('click', () => { playing = !playing; callIf('media_control', playing ? 'play' : 'pause'); toast(playing ? 'Playing' : 'Paused', 'MEDIA', 1500); });
+      el.querySelector('.mu-toggle').addEventListener('click', () => { playing = !playing; callIf('media_control', playing ? 'play' : 'pause'); toast(playing ? 'Playing' : 'Paused', 'MEDIA', 1500); });
     },
     downloads(turn, e) {
       const p = e.payload || e;
@@ -399,9 +462,9 @@
       el.className = 'module';
       el.innerHTML = `<div class="m-row"><span class="m-meta">Clipboard</span><span class="m-label">${text.length} chars</span></div>
         <div class="clipbody">${escapeHtml(text)}</div>
-        <button class="m-quiet" id="clipCopy">Copy again</button>`;
+        <button class="m-quiet clip-copy">Copy again</button>`;
       turn.querySelector('.resp').appendChild(el);
-      el.querySelector('#clipCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(text); toast('Copied', 'CLIPBOARD', 1600); } catch { toast('Clipboard unavailable', 'NOTICE'); } });
+      el.querySelector('.clip-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(text); toast('Copied', 'CLIPBOARD', 1600); } catch { toast('Clipboard unavailable', 'NOTICE'); } });
     },
     file(turn, e) {
       const p = e.payload || e;
@@ -459,23 +522,23 @@
     el.className = 'module';
     el.innerHTML = `
       <div class="m-row"><span class="m-meta">Timer</span><span class="m-label">${minutes} minutes</span></div>
-      <div class="timer-num" id="tnum">${fmt(t)}</div>
-      <div class="timer-bar"><i id="tbar"></i></div>
-      <div class="timer-actions"><button class="btn-silent" id="tpause">Pause</button><button class="btn-quiet" id="treset">Reset</button></div>`;
+      <div class="timer-num">${fmt(t)}</div>
+      <div class="timer-bar"><i></i></div>
+      <div class="timer-actions"><button class="btn-silent">Pause</button><button class="btn-quiet">Reset</button></div>`;
     turn.querySelector('.resp').appendChild(el);
     let left = t, paused = false;
-    const num = el.querySelector('#tnum'), bar = el.querySelector('#tbar');
+    const num = el.querySelector('.timer-num'), bar = el.querySelector('.timer-bar i');
     const iv = setInterval(() => {
       if (!el.isConnected) return clearInterval(iv);
       if (!paused) { left = Math.max(0, left - 1); num.textContent = fmt(left); bar.style.transform = `scaleX(${1 - left / t})`; if (!left) clearInterval(iv); }
     }, 1000);
-    el.querySelector('#tpause').addEventListener('click', (ev) => { paused = !paused; ev.target.textContent = paused ? 'Resume' : 'Pause'; });
-    el.querySelector('#treset').addEventListener('click', () => { left = t; num.textContent = fmt(t); bar.style.transform = 'scaleX(0)'; });
+    el.querySelector('.timer-actions .btn-silent').addEventListener('click', (ev) => { paused = !paused; ev.target.textContent = paused ? 'Resume' : 'Pause'; });
+    el.querySelector('.timer-actions .btn-quiet').addEventListener('click', () => { left = t; num.textContent = fmt(t); bar.style.transform = 'scaleX(0)'; });
   }
 
   /* ------------------------------------------------------ the turn */
   let speakingFallback = null;
-  function speakFallbackTimer(text, factor = 1) { clearTimeout(speakingFallback); speakingFallback = setTimeout(() => setSpeaking(false), Math.min(45000, 1200 + String(text || '').length * 62 * factor)); }
+  function speakFallbackTimer(text, factor = 1) { clearTimeout(speakingFallback); speakingFallback = setTimeout(endSpeech, Math.min(45000, 1200 + String(text || '').length * 62 * factor)); }
 
   async function send(text, viaVoice = false, isRetry = false) {
     text = (text || '').trim();
@@ -503,19 +566,52 @@
       for (const e of events) {
         if (e.type === 'intent' && e.text) { intentChip.querySelector('.chip').innerHTML = '<span class="dot"></span>' + escapeHtml(e.text); }
         else if (e.type === 'text') { if (!said) { said = true; setState('responding'); } streamWord(voice, e.text); }
+        else if (e.type === 'say') { if (!said) { said = true; setState('responding'); } streamWord(voice, e.text); if (e.speak !== false) speakOut(e.text); }
         else if (e.type === 'tool') { handleTool(turn, e); }
         else if (e.type === 'notice') { addNotice(turn, e.text, e.tone || 'info'); }
         else if (e.type === 'prompt') { showPrompt(escapeHtml(e.text), e.action ? { action: e.action, onAction: () => send(e.say || 'Organise my downloads') } : null); }
+        else if (e.type === 'clear_prompt') { dismissPrompt(); }
         else if (e.type === 'speaking') { setSpeaking(true); }
-        else if (e.type === 'speaking_end') { setSpeaking(false); }
+        else if (e.type === 'speaking_end') { endSpeech(); }
+        else if (e.type === 'state' && e.name) { setState(e.name); if (e.label) { let th = turn.querySelector('.thinking'); if (!th) th = addThinking(turn, e.label); else { const lbl = th.querySelector('span:last-child'); if (lbl) lbl.textContent = e.label; } } }
+        else if (e.type === 'progress') { let th = turn.querySelector('.thinking'); if (!th) th = addThinking(turn, e.label || 'Working…'); else { const lbl = th.querySelector('span:last-child'); if (lbl && e.label) lbl.textContent = e.label; } }
+        else if (e.type === 'ask') {
+          said = true;
+          voice.textContent = e.text;
+          setState('waiting');
+          speakOut(e.text);
+          scrollDown();
+          if (Array.isArray(e.options) && e.options.length) {
+            const row = document.createElement('div');
+            row.className = 'chips inline';
+            e.options.forEach(opt => {
+              const b = document.createElement('button');
+              b.className = 'chip';
+              b.innerHTML = '<span class="dot"></span>';
+              b.appendChild(document.createTextNode(opt));
+              b.addEventListener('click', () => {
+                row.querySelectorAll('.chip').forEach(c => { c.disabled = true; });
+                closeSheets(); setTyping(false); send(opt);
+              });
+              row.appendChild(b);
+            });
+            turn.appendChild(row);
+            scrollDown();
+          }
+        }
+        else if (e.type === 'speak_only') { speakOut(e.text, { rate: e.rate }); toast(e.rate && e.rate < 1 ? 'Slower' : 'Again', 'VOICE', 1400); }
         else if (e.type === 'learned') { /* quiet */ }
         else if (e.type === 'done') {
           callIf('log', 'done');
           retries = 0;
           if (!said && e.text) { setState('responding'); streamWord(voice, e.text); }
           const answer = e.full || (voice.textContent || '').trim();
-          if (answer) respActions(turn, answer);
-          if (speakAloud && e.text) { callIf('say', e.text); setSpeaking(true); speakFallbackTimer(e.text); }
+          if (answer) {
+            const words = answer.split(/\s+/).length;
+            voice.dataset.len = words <= 3 ? 'short' : words > 18 ? 'long' : 'mid';
+            respActions(turn, answer);
+          }
+          speakOut(e.text);
           followups(turn, e.followups || ['Tell me more', 'Do that again', 'Never mind']);
         }
         else if (e.type === 'error') {
@@ -538,7 +634,11 @@
         callIf('log', 'settle busy=false');
         clearInterval(poll);
         if (state === 'thinking' || state === 'understanding') setState('responding');
-        setTimeout(() => { if (state !== 'listening' && state !== 'interrupted') setState('idle'); }, reducedMedia.matches ? 150 : 1200);
+        setTimeout(() => {
+          if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
+          if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
+          else setState('idle');
+        }, reducedMedia.matches ? 150 : 1200);
       }
     }, 90);
   }
@@ -575,8 +675,7 @@
       }, 260);
     }
     try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
-    /* auto end-of-speech: once you've spoken, ~1.8s of silence stops listening and sends.
-       no mic should ever stay open waiting for a "stop" that a person can't see. */
+    /* auto end-of-speech: once you've spoken, ~1.8s of silence stops listening and sends */
     const listenStart = performance.now();
     let heardSound = false, lastLoud = listenStart, maxSeen = 0;
     levelTimer = setInterval(async () => {
@@ -618,6 +717,7 @@
 
   function stopSpeaking(silent = false) {
     if (!speaking) return;
+    stopLip();
     setSpeaking(false);
     clearTimeout(speakingFallback);
     callIf('stop_speaking');
@@ -863,7 +963,14 @@
     });
 
     $('#voiceSelect').addEventListener('change', (e) => callIf('set_voice', e.target.value));
-    $('#btnVoiceTest').addEventListener('click', () => { callIf('say', 'This is my voice — this is how I sound.'); toast('Testing the selected voice', 'VOICE', 2000); });
+    $('#btnVoiceTest').addEventListener('click', () => {
+      const btn = $('#btnVoiceTest');
+      if (speaking) { stopSpeaking(true); btn.textContent = 'Test'; return; }
+      speakOut('This is my voice — this is how I sound.');
+      btn.textContent = 'Stop';
+      toast('Previewing voice', 'VOICE', 1800);
+      const iv = setInterval(() => { if (!speaking) { clearInterval(iv); btn.textContent = 'Test'; } }, 300);
+    });
     $('#speakSwitch').addEventListener('click', (e) => {
       speakAloud = !speakAloud;
       e.currentTarget.setAttribute('aria-pressed', String(speakAloud));
@@ -911,7 +1018,7 @@
         e.preventDefault();
         if (e.repeat) return;
         if (speaking) { stopSpeaking(); return; }
-        if (state === 'idle' || state === 'ready') startListening();
+        if (state === 'idle' || state === 'ready' || state === 'waiting') startListening();
       }
     });
     document.addEventListener('keyup', (e) => {

@@ -146,6 +146,8 @@ body.sheet-open #suggestions,body.sheet-open .homestatus{opacity:0;pointer-event
   animation:riseIn var(--dur-b) var(--ease-soft) both;
 }
 .resp .voice .w{display:inline;opacity:0;animation:wf .5s var(--ease) forwards}
+.resp .voice[data-len="short"]{font-size:17.5px;letter-spacing:0}
+.resp .voice[data-len="long"]{font-size:18.5px}
 @keyframes wf{to{opacity:1}}
 @keyframes riseIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
