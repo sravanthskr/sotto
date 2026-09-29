@@ -122,6 +122,33 @@ class Assistant:
         spoken = []
         first = {"v": True}
 
+        def _text_tool_call(content):
+            """Recover tool calls that free models emit as plain-text JSON."""
+            if not content or not content.startswith("{"):
+                return None
+            try:
+                data = json.loads(content)
+            except Exception:
+                return None
+            if not isinstance(data, dict):
+                return None
+            name = data.get("tool") or data.get("name") or data.get("function")
+            args = data.get("arguments") or data.get("args") or data.get("parameters") or {}
+            if isinstance(name, dict):
+                args = name.get("arguments", args)
+                name = name.get("name")
+            if not isinstance(name, str) or name not in tools.REGISTRY:
+                return None
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {}
+            if not isinstance(args, dict):
+                args = {}
+            return {"id": "textcall0", "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(args)}}
+
         def emit(chunk):
             if first["v"]:
                 self._status("speaking")
@@ -139,6 +166,12 @@ class Assistant:
             group.append(message)
 
             calls = message.get("tool_calls")
+            if not calls:
+                recovered = _text_tool_call((message.get("content") or "").strip())
+                if recovered:
+                    calls = [recovered]
+                    message["tool_calls"] = calls
+                    message.pop("content", None)
             if not calls:
                 break
             used_tools = True
