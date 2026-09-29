@@ -1,5 +1,8 @@
 /* ============================================================
-   SOTTO · app styles — layout + components (from the UI Kit spec)
+   SOTTO · app styles v2 — layout + components (deep refinement)
+   Voice-first personal assistant for the computer.
+   Changes vs v1: records hub styles, contextual module set,
+   interrupted/speaking/ready states, home status line, settings rows.
    ============================================================ */
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
@@ -12,7 +15,7 @@ body{
   min-height:100dvh;transition:background var(--dur-s) var(--ease),color var(--dur-s) var(--ease);
 }
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-button:focus-visible,input:focus-visible,[tabindex]:focus-visible{
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{
   outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;
 }
 ::selection{background:var(--accent-dim)}
@@ -27,7 +30,7 @@ button:focus-visible,input:focus-visible,[tabindex]:focus-visible{
 .brand{display:flex;align-items:center;gap:10px;color:var(--ink)}
 .brand .mark{flex:none;opacity:.92}
 .brand .word{font-family:var(--font-voice);font-size:20px;font-weight:400;letter-spacing:-.01em;line-height:1}
-.top-actions{display:flex;align-items:center;gap:2px}
+.top-actions{display:flex;align-items:center;gap:0}
 .icon-btn{
   width:44px;height:44px;border-radius:999px;display:grid;place-items:center;
   color:var(--ink-2);transition:background var(--dur-f) var(--ease),color var(--dur-f) var(--ease),transform var(--dur-i) var(--ease);
@@ -42,7 +45,7 @@ button:focus-visible,input:focus-visible,[tabindex]:focus-visible{
   flex:none;display:flex;flex-direction:column;align-items:center;text-align:center;
   padding:26px 0 10px;
   transition:padding var(--dur-s) var(--ease-soft),max-height var(--dur-s) var(--ease-soft),opacity var(--dur-s) var(--ease);
-  overflow:hidden;max-height:520px;
+  overflow:hidden;max-height:560px;
 }
 body[data-mode="exchange"] .presence-zone{padding:10px 0 6px;max-height:180px}
 body[data-mode="exchange"] .presence{width:132px}
@@ -77,13 +80,19 @@ body[data-mode="exchange"] .presence{height:96px}
 #thread{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:100%;height:120px;pointer-events:none}
 body[data-state="denied"] .presence .field, body[data-state="offline"] .presence .field{opacity:.14;filter:blur(30px)}
 body[data-state="denied"] #thread, body[data-state="offline"] #thread{opacity:.25}
+/* ready: the field wakes just before listening begins (hover / space held) */
+body[data-state="ready"] .presence .f1{opacity:calc(.58 + var(--lvl,0)*.22)}
+body[data-state="ready"] .presence .f3{opacity:.4}
+/* interrupted: the presence flattens gently instead of cutting out */
+body[data-state="interrupted"] .presence .f1{opacity:.34}
 
 .lead{font-family:var(--font-voice);font-size:34px;font-weight:350;letter-spacing:-.015em;line-height:1.15;margin-top:14px;transition:font-size var(--dur-s) var(--ease-soft),opacity var(--dur-b) var(--ease)}
 .hint{margin-top:8px;font-size:12px;letter-spacing:.01em;color:var(--ink-3);transition:opacity var(--dur-b) var(--ease)}
 /* content always paints ABOVE the presence light field (glow must never cover text/buttons) */
-.lead,.hint,#suggestions{position:relative;z-index:1}
+.lead,.hint,#suggestions,.homestatus{position:relative;z-index:1}
 body[data-state="listening"] .hint{color:var(--accent)}
-.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;transition:opacity var(--dur-b) var(--ease),max-height var(--dur-s) var(--ease-soft);overflow:hidden;max-height:80px}
+body[data-state="interrupted"] .hint{color:var(--ink-3)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;transition:opacity var(--dur-b) var(--ease),max-height var(--dur-s) var(--ease-soft);overflow:hidden;max-height:96px}
 body[data-mode="exchange"] #suggestions{opacity:0;max-height:0;margin-top:0}
 .chip{
   display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:999px;
@@ -96,6 +105,19 @@ body[data-mode="exchange"] #suggestions{opacity:0;max-height:0;margin-top:0}
 .chip .dot{width:4px;height:4px;border-radius:50%;background:var(--accent);opacity:.75;flex:none}
 .chip:disabled{opacity:.4;cursor:default}
 
+/* ---- home status line: time · connection (tiny, earned) ---- */
+.homestatus{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  margin-top:16px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;color:var(--ink-3);
+  transition:opacity var(--dur-b) var(--ease),max-height var(--dur-s) var(--ease-soft);
+  max-height:24px;overflow:hidden;text-transform:uppercase;
+}
+body[data-mode="exchange"] .homestatus{opacity:0;max-height:0;margin-top:0}
+.homestatus .hs-dot{width:5px;height:5px;border-radius:50%;background:var(--success);flex:none;transition:background var(--dur-f) var(--ease)}
+.homestatus.off .hs-dot{background:var(--danger)}
+.homestatus.off #stConn{color:var(--danger)}
+.homestatus .hs-sep{opacity:.5}
+
 /* ---- exchange ---- */
 .exchange{
   position:relative;z-index:1;
@@ -106,7 +128,7 @@ body[data-mode="exchange"] #suggestions{opacity:0;max-height:0;margin-top:0}
 .exchange::-webkit-scrollbar{display:none}
 body[data-mode="home"] .exchange{opacity:0;pointer-events:none}
 .chips.inline{justify-content:flex-start;margin-top:20px;padding:0;max-height:none}
-body.sheet-open #suggestions{opacity:0;pointer-events:none}
+body.sheet-open #suggestions,body.sheet-open .homestatus{opacity:0;pointer-events:none}
 .turn{display:flex;flex-direction:column;gap:12px;opacity:1;transition:opacity var(--dur-s) var(--ease)}
 .turn.old{opacity:.52}
 .turn .said{
@@ -126,6 +148,17 @@ body.sheet-open #suggestions{opacity:0;pointer-events:none}
 .resp .voice .w{display:inline;opacity:0;animation:wf .5s var(--ease) forwards}
 @keyframes wf{to{opacity:1}}
 @keyframes riseIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* answer actions — quiet, appear with the answer */
+.resp-actions{display:flex;align-items:center;gap:2px;margin-top:-6px;animation:riseIn var(--dur-b) var(--ease-soft) both}
+.ract{
+  display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:4px 9px;border-radius:8px;
+  color:var(--ink-3);font-size:12px;font-weight:500;letter-spacing:.01em;
+  transition:color var(--dur-f) var(--ease),background var(--dur-f) var(--ease);
+}
+.ract:hover{color:var(--ink-2);background:var(--surface)}
+.ract:active{opacity:.75}
+.ract svg{display:block;opacity:.85}
 
 /* ---- modules ---- */
 .module{
@@ -187,6 +220,36 @@ body.sheet-open #suggestions{opacity:0;pointer-events:none}
 .code-block .copy:hover{color:var(--ink)}
 .code-block .copy.done{opacity:1;color:var(--accent-strong)}
 
+/* ---- contextual module set (v2) ---- */
+/* system status — quiet metric bars */
+.bar-row{display:flex;align-items:center;gap:12px;padding:5px 0}
+.bar-lab{width:62px;flex:none;font-size:12px;color:var(--ink-3);letter-spacing:.01em}
+.bar-track{flex:1;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden}
+.bar-fill{height:100%;border-radius:2px;background:var(--accent);transition:width var(--dur-s) var(--ease)}
+.bar-row.high .bar-fill{background:var(--warn)}
+.bar-val{min-width:48px;text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--ink-2);letter-spacing:.02em}
+/* volume — one honest slider */
+.range{appearance:none;-webkit-appearance:none;width:100%;height:4px;border-radius:2px;background:var(--surface-3);outline:none}
+.range::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent-strong);border:none;cursor:pointer;transition:transform var(--dur-i) var(--ease)}
+.range::-webkit-slider-thumb:active{transform:scale(1.15)}
+.range::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--accent-strong);border:none;cursor:pointer}
+/* downloads — file rows */
+.frow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.frow:first-child{border-top:0;padding-top:2px}
+.frow .fname{flex:1;min-width:0;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frow .fnote{font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.04em;white-space:nowrap}
+.ftag{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-strong);background:var(--accent-dim);border-radius:999px;padding:3px 8px;flex:none}
+/* clipboard peek */
+.clipbody{background:var(--bg-sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;font-size:13px;line-height:1.6;color:var(--ink-2);max-height:130px;overflow:hidden;white-space:pre-wrap;word-break:break-word}
+/* action result — done cue + optional undo */
+.actline{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink)}
+.actline .glyph{flex:none;width:36px;height:36px;border-radius:12px;background:var(--accent-dim);display:grid;place-items:center;color:var(--accent-strong)}
+/* generic key/value lines (future-proof for any tool payload) */
+.kl{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:8px 0;border-top:1px solid var(--line)}
+.kl:first-child{border-top:0;padding-top:0}
+.kl .k{font-size:12px;color:var(--ink-3)}
+.kl .v{font-size:13px;color:var(--ink-2);text-align:right}
+
 /* ---- status ---- */
 .thinking{display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);animation:riseIn var(--dur-b) var(--ease-soft) both}
 .thinking .tpulse{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:tp 1.9s var(--ease-soft) infinite}
@@ -223,7 +286,12 @@ body[data-state="listening"] .mic{border-color:transparent;background:var(--acce
 body[data-state="listening"] .mic svg{opacity:0}
 .mic .stop{position:absolute;width:14px;height:14px;border-radius:4px;background:var(--accent-strong);opacity:0;transition:opacity var(--dur-f) var(--ease)}
 body[data-state="listening"] .mic .stop{opacity:1}
+/* speaking: the mic becomes the stop-speaking control */
+body.speaking .mic{background:var(--accent-dim)}
+body.speaking .mic svg{opacity:0}
+body.speaking .mic .stop{opacity:1}
 .dock-hint{position:absolute;right:10px;bottom:22px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;color:var(--ink-3);opacity:.7;pointer-events:none}
+.dock-type{position:absolute;left:0;bottom:20px}
 
 /* ---- sheets ---- */
 .scrim{position:fixed;inset:0;background:rgba(5,7,9,.62);opacity:0;pointer-events:none;transition:opacity var(--dur-b) var(--ease);z-index:40}
@@ -237,8 +305,8 @@ body[data-state="listening"] .mic .stop{opacity:1}
 }
 .sheet.show{transform:translate(-50%,0)}
 .sheet .grab{width:36px;height:4px;border-radius:4px;background:var(--line-strong);margin:10px auto 2px;flex:none}
-.sheet .s-head{display:flex;align-items:center;justify-content:space-between;padding:10px 20px 12px;flex:none}
-.sheet .s-title{font-size:17px;font-weight:600;letter-spacing:-.005em}
+.sheet .s-head{display:flex;align-items:center;justify-content:space-between;padding:10px 20px 12px;flex:none;gap:10px}
+.sheet .s-title{font-size:17px;font-weight:600;letter-spacing:-.005em;flex:1}
 .sheet .s-body{padding:2px 20px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:18px;scrollbar-width:thin;flex:1;min-height:0}
 .sheet .group-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:-6px}
 .seg{display:flex;background:var(--bg-sunken);border-radius:999px;padding:3px;border:1px solid var(--line);gap:2px}
@@ -248,13 +316,21 @@ body[data-state="listening"] .mic .stop{opacity:1}
 .hsearch input{flex:1;background:none;border:0;color:var(--ink);font:inherit;font-size:14px;padding:12px 0;outline:none;letter-spacing:.005em}
 .hsearch input::placeholder{color:var(--ink-3)}
 .hlist{display:flex;flex-direction:column}
-.hitem{display:flex;flex-direction:column;gap:2px;padding:13px 2px;border-top:1px solid var(--line);text-align:left;transition:opacity var(--dur-f) var(--ease);width:100%}
+.hitem{display:flex;flex-direction:column;gap:2px;padding:13px 2px;border-top:1px solid var(--line);text-align:left;transition:opacity var(--dur-f) var(--ease);width:100%;position:relative}
 .hitem:first-child{border-top:0}
 .hitem:hover{opacity:.78}
 .hitem .h-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .hitem .h-name{font-size:15px;font-weight:500;color:var(--ink)}
 .hitem .h-when{font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.05em;white-space:nowrap}
 .hitem .h-sum{font-size:13px;color:var(--ink-2)}
+.hgroup{margin-top:6px}
+.hgroup .glab{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:10px 2px 2px}
+.hdel{
+  position:absolute;right:0;top:11px;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+  color:var(--ink-3);opacity:0;transition:opacity var(--dur-f) var(--ease),color var(--dur-f) var(--ease),background var(--dur-f) var(--ease);
+}
+.hitem:hover .hdel,.hitem:focus-within .hdel{opacity:1}
+.hdel:hover{color:var(--danger);background:var(--surface-3)}
 .hempty{display:none;flex-direction:column;gap:6px;padding:26px 4px;text-align:center}
 .hempty.show{display:flex}
 .hempty .he-t{font-size:15px;font-weight:500}
@@ -278,7 +354,21 @@ body[data-state="listening"] .mic .stop{opacity:1}
 .switch i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--ink-2);transition:left var(--dur-f) var(--ease),background var(--dur-f) var(--ease)}
 .switch[aria-pressed="true"] i{left:21px;background:#0C0E11}
 [data-theme="light"] .switch[aria-pressed="true"] i{background:#fff}
+.switch[disabled]{opacity:.4;cursor:default}
 .rowbetween{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
+
+/* ---- settings rows (v2) ---- */
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:52px;border-top:1px solid var(--line)}
+.setrow:first-of-type{border-top:0}
+.setrow .s-info{display:flex;flex-direction:column;gap:1px;min-width:0}
+.setrow .s-lab{font-size:14px;color:var(--ink);letter-spacing:.005em}
+.setrow .s-sub{font-size:12px;color:var(--ink-3)}
+.selectwrap{position:relative;display:flex;align-items:center}
+.selectwrap select{
+  appearance:none;-webkit-appearance:none;background:var(--bg-sunken);border:1px solid var(--line-strong);
+  border-radius:var(--r-sm);color:var(--ink);font:inherit;font-size:14px;padding:11px 38px 11px 14px;cursor:pointer;min-height:44px;
+}
+.selectwrap .chev{position:absolute;right:12px;pointer-events:none;color:var(--ink-3)}
 
 /* ---- responsive ---- */
 @media (min-width:768px) and (min-height:640px){
@@ -291,21 +381,26 @@ body[data-state="listening"] .mic .stop{opacity:1}
   .exchange{flex:1;max-height:76dvh}
   body[data-mode="home"] .exchange{display:none}
   .dock{justify-content:flex-start;padding-left:6px}
+  .dock-hint{right:auto;left:84px}
+  .dock-type{left:auto;right:0}
 }
 @media (min-width:1024px) and (min-height:700px){
   .frame{width:min(100%,1100px);padding-top:calc(env(safe-area-inset-top,0px) + 28px)}
   .presence-zone{flex:0 0 46%}
   .lead{font-size:40px}
   .exchange{max-width:560px}
+  .sheet{width:min(100%,560px)}
 }
 @media (hover:none){
   .code-block .copy{opacity:.85}
+  .hdel{opacity:.6}
 }
 /* light theme legibility: white surfaces need a visible edge, otherwise they read as "washed out"
    (white pills on near-white paper look like blobs covering the buttons) */
 [data-theme="light"] .chip{border-color:var(--line-strong)}
 [data-theme="light"] .mic,[data-theme="light"] .btn-silent,[data-theme="light"] .module,
-[data-theme="light"] .notice,[data-theme="light"] .hsearch,[data-theme="light"] .typewrap{border-color:var(--line-strong)}
+[data-theme="light"] .notice,[data-theme="light"] .hsearch,[data-theme="light"] .typewrap,
+[data-theme="light"] .selectwrap select{border-color:var(--line-strong)}
 /* short windows (small laptops, resized windows): compact the hero — nothing may clip */
 @media (max-height:720px){
   .presence-zone{padding:8px 0 4px;max-height:none}
@@ -318,15 +413,105 @@ body[data-state="listening"] .mic .stop{opacity:1}
   .dock{padding:8px 0 2px}
   .mic{width:56px;height:56px}
   .exchange{gap:20px;padding:8px 2px 12px}
+  .homestatus{margin-top:10px}
 }
 @media (max-height:560px){
   .presence{height:96px}
   .lead{font-size:22px}
   .presence-zone{padding:4px 0 2px}
   .chip{padding:6px 11px}
+  .homestatus{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   .presence .f1{animation:none}
   .resp .voice .w{animation:none;opacity:1}
+}
+/* user-forced reduced motion (Settings → Accessibility) */
+body.reduce-motion *,body.reduce-motion *::before,body.reduce-motion *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+body.reduce-motion .presence .f1{animation:none}
+body.reduce-motion .resp .voice .w{animation:none;opacity:1}
+
+/* ============================================================
+   v3 · mixed presentation system + interaction completion
+   ============================================================ */
+/* ---- quick settings popover (anchored, not a sheet) ---- */
+.top{position:relative}
+.popmenu{position:absolute;top:52px;right:0;width:320px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sheet-shadow);padding:16px 16px 10px;display:flex;flex-direction:column;gap:8px;z-index:45;transform-origin:top right;animation:popIn var(--dur-b) var(--ease-soft) both}
+.popmenu[hidden]{display:none}
+@keyframes popIn{from{opacity:0;transform:scale(.96) translateY(-5px)}to{opacity:1;transform:none}}
+.popmenu .setrow{min-height:44px}
+.popmenu .seg{width:100%}
+
+/* ---- dock typing mode: voice morphs into text, same control ---- */
+.dock-typebar{display:none;width:100%;gap:8px;align-items:center}
+.dock.typing .dock-typebar{display:flex}
+.dock.typing .mic,.dock.typing .dock-type,.dock.typing .dock-hint{display:none}
+.dock.typing .dock-typebar .typewrap{flex:1}
+
+/* ---- live partial transcript while listening ---- */
+.liveline{margin-top:10px;font-size:15px;color:var(--ink-2);padding:0 28px;text-align:center;min-height:22px;max-width:420px;transition:opacity var(--dur-b) var(--ease)}
+.liveline .caret{display:inline-block;width:2px;height:15px;background:var(--accent);vertical-align:-2px;margin-left:3px;animation:caret 1s steps(1) infinite}
+@keyframes caret{50%{opacity:0}}
+.liveline.dim{opacity:.42}
+
+/* ---- prompt line: nudges & briefing (waits quietly, never interrupts) ---- */
+.prompt-line{display:flex;align-items:center;gap:10px;margin-top:14px;padding:11px 12px 11px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);max-width:360px;animation:riseIn var(--dur-b) var(--ease-soft) both}
+body[data-mode="exchange"] .prompt-line{display:none}
+.prompt-line .pl-text{flex:1;font-size:13px;color:var(--ink-2);line-height:1.5;text-align:left}
+.prompt-line .pl-text b{color:var(--ink);font-weight:500}
+.prompt-line .pl-x{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--ink-3);flex:none;transition:color var(--dur-f) var(--ease),background var(--dur-f) var(--ease)}
+.prompt-line .pl-x:hover{color:var(--ink);background:var(--surface-2)}
+
+/* ---- sheet ergonomics: taller, draggable, background recedes ---- */
+.sheet{max-height:90dvh}
+.frame{transition:transform var(--dur-s) var(--ease-soft)}
+body.sheet-open .frame{transform:scale(.988)}
+.sheet.dragging{transition:none}
+.sheet .grab{cursor:grab;padding:6px 0;margin:2px auto -6px;touch-action:none}
+.sheet .grab:active{cursor:grabbing}
+.sheet .s-body{padding-bottom:30px}
+
+/* ---- media extras + action confirm ---- */
+.mu .nav{width:34px;height:34px;border-radius:999px;display:grid;place-items:center;color:var(--ink-2);transition:color var(--dur-f) var(--ease),background var(--dur-f) var(--ease)}
+.mu .nav:hover{color:var(--ink);background:var(--surface-2)}
+.actbtns{display:flex;gap:10px;margin-top:2px}
+
+/* ---- status dot variants ---- */
+.homestatus .hs-dot.warn{background:var(--warn);animation:tp 1.6s var(--ease-soft) infinite}
+
+/* shortcut keycaps */
+.kbd{font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;color:var(--ink-2);background:var(--surface-3);border:1px solid var(--line);border-radius:6px;padding:4px 9px;white-space:nowrap;flex:none}
+
+/* ============================================================
+   v3.2 · desktop side panels — History / Memory / Settings stay in context
+   (narrow windows keep the bottom sheet; desktop docks a quiet panel to the right)
+   ============================================================ */
+:root{--panel-w:min(392px,42vw)}
+@media (min-width:768px){
+  .sheet.side{
+    left:16px;right:auto;top:16px;bottom:16px;
+    width:var(--panel-w);max-height:none;border-radius:var(--r-lg);
+    transform:translateX(-30px);opacity:0;pointer-events:none;
+    transition:transform var(--dur-s) var(--ease-soft),opacity var(--dur-b) var(--ease);
+  }
+  .sheet.side.show{transform:none;opacity:1;pointer-events:auto}
+  .sheet.side .grab{display:none}
+  .sheet.side .s-head{padding-top:18px}
+  .sheet.side .s-body{padding-bottom:22px}
+  /* the frame gives the panel its own column — nothing underneath is ever covered */
+  body.panel-open .frame{
+    transition:margin-left var(--dur-s) var(--ease-soft),margin-right var(--dur-s) var(--ease-soft),transform var(--dur-s) var(--ease-soft);
+  }
+}
+@media (min-width:1024px){
+  body.panel-open .frame{
+    margin-left:max(calc((100vw - 1100px) / 2),calc(var(--panel-w) + 44px));
+    margin-right:max(calc((100vw - 1100px) / 2),24px);
+    width:auto;max-width:1100px;
+  }
+}
+@media (min-width:768px) and (max-width:1023px){
+  body.panel-open .frame{transform:translateX(min(150px,18vw))}
+  .sheet.side{width:min(330px,38vw)}
 }

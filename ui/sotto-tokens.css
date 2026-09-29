@@ -1,8 +1,9 @@
 /* ============================================================
-   SOTTO — design tokens (drop-in)
-   Voice-first assistant · dark (primary) + light "morning paper"
+   SOTTO — design tokens (v2)
+   Voice-first personal assistant · dark (primary) + light "morning paper"
    Type: Newsreader (voice) · Schibsted Grotesk (UI) · Spline Sans Mono (meta)
-   Usage: include this file once; theme via [data-theme="light"] on <body> or <html>.
+   Theme via [data-theme="light"] on <body> or <html>. Explicit choice persists;
+   default stays dark. "System" resolves at runtime in sotto.js.
    ============================================================ */
 
 :root {
@@ -18,11 +19,18 @@
   --ink-2:         #A7B0B8;   /* secondary text */
   --ink-3:         #7D8791;   /* tertiary / meta */
 
-  /* —— accent: "glacier" (single accent; spend max 2 visible placements per screen) —— */
+  /* —— accent: "glacier" (single accent; max 2 visible placements per screen) —— */
   --accent:        #A9CCDE;
   --accent-strong: #C9E1EE;
   --accent-dim:    rgba(169,204,222,.16);
   --accent-glow:   rgba(169,204,222,.38);   /* presence light only */
+
+  /* —— state colors (used by the presence language; states never introduce new hues) —— */
+  --state-listening:   var(--accent);      /* listening = the accent, alive */
+  --state-processing:  var(--ink-2);       /* thinking = neutral, calm */
+  --state-speaking:    var(--accent-strong);
+  --state-ok:          var(--success);
+  --state-off:         var(--danger);
 
   /* —— semantic (reserve <5% of any surface) —— */
   --danger:        #CE8A7A;   /* calm clay — errors, never alarm-red */
@@ -43,7 +51,9 @@
   --r-xl: 30px;   /* hero surfaces */
   --r-pill: 999px;
 
-  /* —— spacing —— */
+  /* —— spacing (4px base) —— */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-12: 48px; --sp-16: 64px;
   --pad: 24px;   /* page gutter (32px at desktop widths) */
 
   /* —— motion (one personality: short, front-loaded, purposefully calm) —— */
@@ -58,8 +68,8 @@
 
   /* —— elevation & blur policy —— */
   --sheet-shadow: 0 24px 64px rgba(0,0,0,.45);
-  /* blur exists in exactly TWO places: sheet scrims, and the presence field.
-     dark elevation otherwise = tone + hairline only; no drop shadows on cards. */
+  --blur-scrim: 20px;   /* the scrim is the only sanctioned blur besides the presence field */
+  /* dark elevation otherwise = tone + hairline only; no drop shadows on cards. */
 }
 
 /* —— light theme: same hierarchy, different physics (not an inversion) —— */
@@ -83,6 +93,7 @@
   --success:       #5C8467;
   --warn:          #8F7B44;
   --sheet-shadow:  0 24px 64px rgba(16,24,32,.16);
+  --state-processing: var(--ink-2);
 }
 
 /* —— minimal base —— */

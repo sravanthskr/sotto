@@ -21,74 +21,124 @@
       <span class="word">Sotto</span>
     </div>
     <div class="top-actions">
-      <button class="icon-btn" id="btnHistory" aria-label="History">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <button class="icon-btn" id="btnHistory" aria-label="History" title="History — Ctrl+Shift+H">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3.5 12a8.5 8.5 0 1 0 2.2-5.7"/><path d="M3.5 4.5V9H8"/><path d="M12 8v4.4l2.8 1.7"/>
         </svg>
       </button>
-      <button class="icon-btn" id="btnTheme" aria-label="Switch theme">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-          <circle cx="12" cy="12" r="4"/>
-          <path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"/>
+      <button class="icon-btn" id="btnMemory" aria-label="Memory, notes and activity" title="Memory — Ctrl+Shift+M">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 6.5h13M4 11.5h13M4 16.5h8"/>
+          <circle cx="18.6" cy="16.5" r="1.6" fill="currentColor" stroke="none"/>
         </svg>
       </button>
-      <button class="icon-btn" id="btnType" aria-label="Type instead">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>
+      <button class="icon-btn" id="btnSettings" aria-label="Settings" title="Settings — Ctrl+Shift+S">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 7h9M17.5 7H20M4 12h2.5M10.5 12H20M4 17h8M16 17h4"/>
+          <circle cx="15.2" cy="7" r="1.9"/><circle cx="8.2" cy="12" r="1.9"/><circle cx="13.8" cy="17" r="1.9"/>
         </svg>
       </button>
+      <button class="icon-btn" id="btnTheme" aria-label="Switch theme" title="Theme — Ctrl+Shift+D"></button>
+    </div>
+
+    <div class="popmenu" id="quickMenu" hidden>
+      <span class="group-label" style="margin-bottom:-2px">Theme — Ctrl+Shift+D</span>
+      <div class="seg" id="segThemeQuick" role="group" aria-label="Theme">
+        <button data-theme-set="dark" aria-pressed="true">Dark</button>
+        <button data-theme-set="light" aria-pressed="false">Light</button>
+        <button data-theme-set="system" aria-pressed="false">System</button>
+      </div>
+      <div class="setrow">
+        <span class="s-info"><span class="s-lab">Speak replies aloud</span><span class="s-sub">Answers are read out when they arrive</span></span>
+        <button class="switch" id="speakSwitch" aria-pressed="true" aria-label="Speak replies aloud"><i></i></button>
+      </div>
+      <div class="setrow">
+        <span class="s-info"><span class="s-lab">Sound effects</span><span class="s-sub">Quiet cues when listening starts and finishes</span></span>
+        <button class="switch" id="soundSwitch" aria-pressed="false" aria-label="Sound effects"><i></i></button>
+      </div>
+      <div class="setrow">
+        <span class="s-info"><span class="s-lab">Wake word</span><span class="s-sub">Talk without clicking — hands-free listening</span></span>
+        <button class="switch" id="wakeSwitch" aria-pressed="false" aria-label="Wake word"><i></i></button>
+      </div>
+      <div class="setrow">
+        <span class="s-info"><span class="s-lab">Reduce motion</span><span class="s-sub">Calmer transitions — the wave becomes a still glow</span></span>
+        <button class="switch" id="motionSwitch" aria-pressed="false" aria-label="Reduce motion"><i></i></button>
+      </div>
+      <button class="btn-quiet" id="btnMoreSettings" style="font-size:13px;justify-content:flex-start;padding-left:0">All settings…</button>
     </div>
   </header>
 
   <main class="stage">
     <!-- ── presence ─────────────────────────────────────────── -->
     <section class="presence-zone">
-      <div class="presence" id="presence" aria-hidden="true">
-        <span class="hit"></span>
+      <div class="presence" id="presence" aria-hidden="false">
+        <span class="hit" role="button" tabindex="0" aria-label="Talk to Sotto"></span>
         <i class="field f1"></i><i class="field f2"></i><i class="field f3"></i>
-        <canvas id="thread" width="600" height="240"></canvas>
+        <canvas id="thread" width="600" height="240" aria-hidden="true"></canvas>
       </div>
       <h1 class="lead" id="lead">Good evening.</h1>
       <p class="hint" id="hint">Press the mic, or hold Space</p>
+      <p class="liveline" id="liveLine" hidden aria-live="polite"></p>
       <div class="chips" id="suggestions">
         <button class="chip" data-say="What's my system status?"><span class="dot"></span>System status</button>
         <button class="chip" data-say="Remind me in 10 minutes"><span class="dot"></span>Set a timer</button>
-        <button class="chip" data-say="What's the weather?"><span class="dot"></span>Weather</button>
+        <button class="chip" data-say="What's playing?"><span class="dot"></span>What's playing</button>
         <button class="chip" data-say="Organise my downloads"><span class="dot"></span>Organise downloads</button>
+      </div>
+      <div class="homestatus" aria-live="off">
+        <span class="hs-dot" id="stDot" aria-hidden="true"></span>
+        <span id="stConn">Online</span>
+        <span class="hs-sep" aria-hidden="true">·</span>
+        <span id="stClock">9:41</span>
       </div>
     </section>
 
     <!-- ── exchange ─────────────────────────────────────────── -->
-    <section class="exchange" id="exchange" aria-live="polite"></section>
+    <section class="exchange" id="exchange" aria-label="Conversation"></section>
   </main>
 
   <!-- ── dock ───────────────────────────────────────────────── -->
-  <div class="dock">
+  <div class="dock" id="dock">
+    <button class="btn-quiet dock-type" id="btnType" style="font-size:13px">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></svg>
+      Type instead
+    </button>
     <button class="mic" id="mic" aria-label="Talk">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 3.4h6v11a3 3 0 0 1-6 0z"/><path d="M5.5 11.4a6.5 6.5 0 0 0 13 0"/><path d="M12 17.9v2.7"/>
       </svg>
       <span class="stop" aria-hidden="true"></span>
     </button>
-    <span class="dock-hint">SPACE</span>
+    <span class="dock-hint">HOLD SPACE</span>
+    <div class="dock-typebar" id="dockTypeBar">
+      <div class="typewrap">
+        <input id="typeInput" placeholder="Say it your way…" aria-label="Type a request" autocomplete="off">
+        <button class="send" id="btnSend" aria-label="Send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+      <button class="btn-quiet" id="btnTypeClose" aria-label="Back to voice" style="min-height:36px;padding:4px 8px;font-size:12px">Esc</button>
+    </div>
   </div>
 </div>
 
 <!-- ── sheets ───────────────────────────────────────────────── -->
 <div class="scrim" id="scrim"></div>
 
+<!-- History -->
 <section class="sheet" id="sheetHistory" role="dialog" aria-modal="true" aria-label="History">
   <span class="grab"></span>
   <div class="s-head">
     <span class="s-title">History</span>
+    <button class="btn-quiet" id="btnNewChat" style="font-size:13px;min-height:36px;padding:4px 8px">+ New</button>
     <button class="icon-btn" data-close aria-label="Close">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
   <div class="s-body">
     <label class="hsearch">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="6.2"/><path d="M19.6 19.6l-3.9-3.9"/></svg>
-      <input id="hSearch" placeholder="Search conversations" aria-label="Search conversations">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.2"/><path d="M19.6 19.6l-3.9-3.9"/></svg>
+      <input id="hSearch" placeholder="Search conversations" aria-label="Search conversations" data-autofocus>
     </label>
     <div>
       <div class="hlist" id="hList"></div>
@@ -100,42 +150,84 @@
   </div>
 </section>
 
-<section class="sheet" id="sheetType" role="dialog" aria-modal="true" aria-label="Type instead">
+<!-- Memory -->
+<section class="sheet" id="sheetMemory" role="dialog" aria-modal="true" aria-label="Memory">
   <span class="grab"></span>
   <div class="s-head">
-    <span class="s-title">Type instead</span>
+    <span class="s-title">Memory</span>
     <button class="icon-btn" data-close aria-label="Close">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
   <div class="s-body">
-    <div class="typewrap">
-      <input id="typeInput" placeholder="Say it your way…" aria-label="Type instead">
-      <button class="send" id="btnSend" aria-label="Send">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
-      </button>
+    <div class="seg" id="memSeg" role="group" aria-label="Memory sections">
+      <button data-mem="memory" aria-pressed="true">Memory</button>
+      <button data-mem="notes" aria-pressed="false">Notes</button>
+      <button data-mem="tasks" aria-pressed="false">Tasks</button>
+      <button data-mem="activity" aria-pressed="false">Activity</button>
     </div>
-    <p class="n-mono" style="font-family:var(--font-mono);font-size:11px;color:var(--ink-3)">Enter to send · Esc to close</p>
+    <span class="group-label" id="memTitle">What I know</span>
+    <div class="hlist" id="memList"></div>
   </div>
 </section>
 
+<!-- Settings -->
 <section class="sheet" id="sheetSettings" role="dialog" aria-modal="true" aria-label="Settings">
   <span class="grab"></span>
   <div class="s-head">
     <span class="s-title">Settings</span>
     <button class="icon-btn" data-close aria-label="Close">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
   <div class="s-body">
-    <span class="group-label">Spoken voice</span>
-    <select id="voiceSelect" class="typewrap" style="padding:12px 14px;color:var(--ink)"></select>
-    <span class="group-label">Model chain</span>
-    <div class="hlist" id="providerList"></div>
-    <div class="rowbetween">
-      <span class="m-label">Speak replies aloud</span>
-      <button class="switch" id="speakSwitch" aria-pressed="true"><i></i></button>
+    <span class="group-label">Voice</span>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Spoken voice</span><span class="s-sub">How replies sound aloud</span></div>
+      <div class="selectwrap">
+        <select id="voiceSelect" aria-label="Spoken voice" data-autofocus></select>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+      </div>
     </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Test voice</span><span class="s-sub">Hear the current voice once</span></div>
+      <button class="btn-silent" id="btnVoiceTest">Test</button>
+    </div>
+
+    <span class="group-label">Keyboard</span>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Talk — hold</span><span class="s-sub">Hold to speak, release to send</span></div>
+      <span class="kbd">Space</span>
+    </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Type instead</span><span class="s-sub">Jump straight into the text input</span></div>
+      <span class="kbd">Ctrl K</span>
+    </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">History</span><span class="s-sub">Open or close the history panel</span></div>
+      <span class="kbd">Ctrl Shift H</span>
+    </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Memory</span><span class="s-sub">Memory, notes, tasks and activity</span></div>
+      <span class="kbd">Ctrl Shift M</span>
+    </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Settings</span><span class="s-sub">Voice and assistant settings</span></div>
+      <span class="kbd">Ctrl Shift S</span>
+    </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Dark / light</span><span class="s-sub">Switch the theme instantly</span></div>
+      <span class="kbd">Ctrl Shift D</span>
+    </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Close / back</span><span class="s-sub">Dismiss any panel or input</span></div>
+      <span class="kbd">Esc</span>
+    </div>
+
+    <span class="group-label">Assistant</span>
+    <div class="hlist" id="providerList"></div>
+    <div class="hempty" id="providerEmpty" style="display:none"></div>
+    <p class="n-mono" id="aboutLine" style="font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.06em;text-align:center">Sotto</p>
   </div>
 </section>
 

@@ -7,6 +7,7 @@ the assistant runs on a background thread, appends events to a list, and the UI 
 
 import json
 import os
+import re
 import threading
 import time
 
@@ -16,6 +17,15 @@ import voice_convert
 from config import MODEL_NAME, PROVIDERS
 from core import Assistant
 from sessions import SessionStore
+
+
+def _status_rows(text):
+    """Best-effort CPU/RAM/Battery bars from the one-line system_status string."""
+    rows = []
+    for m in re.finditer(r"\b(CPU|RAM|Battery|Disk)\b[^\d%]*(\d+)\s*%", text or ""):
+        label, val = m.group(1), int(m.group(2))
+        rows.append({"label": label, "value": min(100, val), "text": f"{val}%"})
+    return rows
 
 
 class Api:
@@ -52,7 +62,12 @@ class Api:
         self._push({"type": "text", "text": chunk})
 
     def _on_tool(self, name, args, result):
-        self._push({"type": "tool", "name": name, "result": str(result)})
+        event = {"type": "tool", "name": name, "result": str(result)}
+        if name == "system_status":
+            rows = _status_rows(str(result))
+            if rows:
+                event["rows"] = rows
+        self._push(event)
 
     def _on_learned(self, facts):
         self._push({"type": "learned", "facts": list(facts)})
@@ -141,6 +156,68 @@ class Api:
     def set_voice(self, name):
         from config import save_setting
         return json.dumps(bool(save_setting("voice_name", name)))
+
+    # ---- optional extras (the UI capability-gates on these) ------------
+    def status(self):
+        try:
+            import ai_engine
+            active = (getattr(ai_engine, "_STATE", {}) or {}).get("active")
+        except Exception:
+            active = None
+        return json.dumps({"online": True, "provider": active or MODEL_NAME, "state": "ready"})
+
+    def stop_speaking(self):
+        try:
+            voice.stop_speaking()
+        except Exception:
+            pass
+        return json.dumps(True)
+
+    def list_memory(self):
+        try:
+            rows = [{"title": f} for f in self.assistant.memory.facts()]
+        except Exception:
+            rows = []
+        return json.dumps(rows)
+
+    def list_notes(self):
+        try:
+            items = self.assistant.notes.list(50)
+            rows = [{"title": n.get("text", ""), "when": n.get("created")} for n in reversed(items)]
+        except Exception:
+            rows = []
+        return json.dumps(rows)
+
+    def list_tasks(self):
+        try:
+            rows = [{"title": r.get("message", ""), "when": r.get("due")}
+                    for r in self.assistant.reminders.list()]
+        except Exception:
+            rows = []
+        return json.dumps(rows)
+
+    def list_activity(self):
+        try:
+            import audit
+            rows = [{"title": f'{e.get("tool", "action")} — {str(e.get("result", ""))[:90]}',
+                     "when": e.get("ts")} for e in reversed(audit.recent(30))]
+        except Exception:
+            rows = []
+        return json.dumps(rows)
+
+    def set_sound(self, on):
+        from config import save_setting
+        return json.dumps(bool(save_setting("sound_effects", bool(on))))
+
+    def set_wake(self, on):
+        from config import save_setting
+        return json.dumps(bool(save_setting("wake_word", bool(on))))
+
+    def say_slow(self, text):
+        try:
+            return json.dumps({"ok": bool(voice.speak(text, rate=-3))})
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)})
 
     # ---- side panels ---------------------------------------------------
     def info(self):
