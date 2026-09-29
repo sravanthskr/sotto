@@ -11,3 +11,6 @@ dist/
 ui/_demo*.html
 _shots/
 ui/ui_app.py
+_rvc_*
+_wtest*
+_shots/

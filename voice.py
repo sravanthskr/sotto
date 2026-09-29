@@ -62,22 +62,55 @@ def list_recognizers():
     return [line.strip() for line in (_run(script).stdout or "").splitlines() if line.strip()]
 
 
+_cv_queue = None
+_cv_thread = None
+
+
+def _ensure_cv_thread():
+    global _cv_thread, _cv_queue
+    import queue as _q
+    if _cv_queue is None:
+        _cv_queue = _q.Queue()
+    if _cv_thread is None or not _cv_thread.is_alive():
+        _cv_thread = threading.Thread(target=_cv_worker, daemon=True)
+        _cv_thread.start()
+
+
+def _cv_worker():
+    """One sentence at a time, in arrival order: render -> convert -> play."""
+    while True:
+        item = _cv_queue.get()
+        if item is None:
+            return
+        text, voice_name, rate = item
+        try:
+            _speak_custom_sync(text, voice_name, rate)
+        except Exception:
+            pass
+
+
+def _speak_custom_sync(text, voice_name, rate):
+    import voice_convert
+    src = Path(tempfile.gettempdir()) / "realassistant_say.wav"
+    out = Path(tempfile.gettempdir()) / "realassistant_say_cv.wav"
+    if speak_to_wav(text, src, voice=voice_name or None, rate=rate):
+        converted = voice_convert.convert(src, out)
+        voice_convert.play_wav(converted or src)
+
+
 def speak(text, voice=None, rate=None):
     """Say something out loud. If a custom voice is installed, use it."""
     text = (text or "").strip()
     if not text:
         return False
 
-    # custom voice pipeline: TTS -> local conversion -> play
+    # custom voice pipeline: TTS -> local conversion -> play (queued, ordered)
     try:
         import voice_convert
         if voice_convert.model_ready():
-            src = Path(tempfile.gettempdir()) / "realassistant_say.wav"
-            out = Path(tempfile.gettempdir()) / "realassistant_say_cv.wav"
-            if speak_to_wav(text, src, voice=voice, rate=rate):
-                converted = voice_convert.convert(src, out)
-                if converted and voice_convert.play_wav(converted):
-                    return True
+            _ensure_cv_thread()
+            _cv_queue.put((text, voice, rate))
+            return True
     except Exception:
         pass
 
@@ -158,6 +191,16 @@ def stop_speaking():
     if _speaker is not None:
         _speaker.stop()
         _speaker = None
+    try:
+        import voice_convert
+        voice_convert.stop_playback()
+    except Exception:
+        pass
+    try:
+        while _cv_queue is not None:
+            _cv_queue.get_nowait()
+    except Exception:
+        pass
 
 
 def warm():

@@ -119,6 +119,11 @@ VOICE_RATE = int(_SETTINGS.get("voice_rate", 0))
 MIC_DEVICE = _SETTINGS.get("mic_device")   # None = default mic, or an int index
 STT_MODEL = str(_SETTINGS.get("stt_model", "small.en"))
 CUSTOM_VOICE = str(_SETTINGS.get("custom_voice", ""))
+RVC_F0METHOD = str(_SETTINGS.get("rvc_f0method", "rmvpe"))
+try:
+    RVC_INDEX_RATE = float(_SETTINGS.get("rvc_index_rate", 0.5))
+except Exception:
+    RVC_INDEX_RATE = 0.5
 VOICE_MODELS_DIR = DATA_DIR / "voices"
 
 

@@ -293,7 +293,24 @@ class Api:
 
     def set_voice(self, name):
         from config import save_setting
-        return json.dumps(bool(save_setting("voice_name", name)))
+        import config
+        name = str(name or "").strip()
+        if name.lower().endswith("(custom)"):
+            base = name[: -len("(custom)")].strip().lower()
+            import voice_convert
+            if base in voice_convert.available_voices():
+                save_setting("custom_voice", base)
+                config.CUSTOM_VOICE = base
+                voice_convert.prewarm()
+                _log(f"set_voice -> custom '{base}'")
+                return json.dumps(True)
+            return json.dumps(False)
+        # a system voice was chosen: plain SAPI path, custom pipeline off
+        save_setting("custom_voice", "")
+        config.CUSTOM_VOICE = ""
+        ok = bool(save_setting("voice_name", name))
+        _log(f"set_voice -> system '{name}' ok={ok}")
+        return json.dumps(ok)
 
     # ---- optional extras (the UI capability-gates on these) ------------
     def status(self):
@@ -360,15 +377,23 @@ class Api:
 
     # ---- side panels ---------------------------------------------------
     def info(self):
+        import config
+        custom = voice_convert.available_voices()
+        voices = list(voice.list_voices())
+        for c in custom:
+            voices.append(c.title() + " (custom)")
+        current = voice.default_voice()
+        if config.CUSTOM_VOICE and config.CUSTOM_VOICE in custom:
+            current = config.CUSTOM_VOICE.title() + " (custom)"
         return json.dumps({
             "model": MODEL_NAME,
             "apps": len(tools.APP_INDEX),
             "memory": self.assistant.memory.facts(),
             "notes": [n["text"] for n in self.assistant.notes.list(50)],
             "reminders": self.assistant.reminders.list(),
-            "voices": voice.list_voices(),
-            "current_voice": voice.default_voice(),
-            "custom_voices": voice_convert.available_voices(),
+            "voices": voices,
+            "current_voice": current,
+            "custom_voices": custom,
             "providers": [
                 {"name": p["name"], "model": p.get("model", ""),
                  "key": bool(os.environ.get(p.get("api_key_env", ""), "").strip())}
