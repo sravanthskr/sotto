@@ -575,8 +575,22 @@
       }, 260);
     }
     try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
+    /* auto end-of-speech: once you've spoken, ~1.8s of silence stops listening and sends.
+       no mic should ever stay open waiting for a "stop" that a person can't see. */
+    const listenStart = performance.now();
+    let heardSound = false, lastLoud = listenStart, maxSeen = 0;
     levelTimer = setInterval(async () => {
       try { level = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
+      const now = performance.now();
+      if (level > maxSeen) maxSeen = level;
+      const thresh = Math.max(0.05, maxSeen * 0.28);
+      if (level > thresh) { heardSound = true; lastLoud = now; }
+      const elapsed = (now - listenStart) / 1000;
+      const silentFor = (now - lastLoud) / 1000;
+      if (elapsed > 1 && ((heardSound && silentFor > 1.8) || (!heardSound && elapsed > 8) || elapsed > 60)) {
+        callIf('log', 'auto-stop heard=' + heardSound + ' silent=' + silentFor.toFixed(1) + 's elapsed=' + elapsed.toFixed(1) + 's');
+        stopListening();
+      }
     }, 50);
   }
 

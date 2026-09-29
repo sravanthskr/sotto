@@ -175,6 +175,16 @@ class Assistant:
             messages.append(retry)
             group.append(retry)
 
+        # still nothing? a provider hiccup can return a completely empty message with
+        # no error (fast, silent). Make one plain call through the full provider chain
+        # before giving up, so a turn never dies silently.
+        if not "".join(spoken).strip():
+            self._status("thinking")
+            plain = ai_engine.complete(messages, max_tokens=1000)
+            if plain.strip():
+                emit(plain.strip())
+                messages.append({"role": "assistant", "content": plain.strip()})
+
         self._status("idle")
         self.turns.append(group)
         self._compress()

@@ -141,6 +141,11 @@ class Api:
     def _run(self, text):
         try:
             reply = self.assistant.ask(text)
+            if not (reply or "").strip():
+                _log("EMPTY reply from ask() -> error event (turn never dies silently)")
+                self._push({"type": "error",
+                            "text": "I didn't get a usable response — one more try…"})
+                return
             self.session.setdefault("messages", []).append(
                 {"role": "assistant", "text": reply, "ts": time.time()})
             self.session["turns"] = self.assistant.turns
