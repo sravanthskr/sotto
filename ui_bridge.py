@@ -64,6 +64,7 @@ class Api:
         self._last_status = None
         self._turn_checked = False
         self._turn_leak = False
+        self._mic_stream = None
 
     # ---- lifecycle -----------------------------------------------------
     def start(self):
@@ -444,6 +445,41 @@ class Api:
             return json.dumps({"text": voice.listen_once(6) or ""})
         except Exception as e:
             return json.dumps({"text": "", "error": str(e)})
+
+    def listen_start(self):
+        try:
+            from audio import MicStream
+            if self._mic_stream:
+                try:
+                    self._mic_stream.stop()
+                except Exception:
+                    pass
+            self._mic_stream = MicStream()
+            self._mic_stream.start()
+            _log("listen_start")
+            return json.dumps(True)
+        except Exception as e:
+            _log(f"listen_start failed: {e}")
+            return json.dumps(False)
+
+    def listen_level(self):
+        if self._mic_stream:
+            return json.dumps(float(self._mic_stream.level))
+        return json.dumps(0.0)
+
+    def listen_stop(self):
+        if not self._mic_stream:
+            return json.dumps("")
+        try:
+            wav_path = self._mic_stream.stop()
+            self._mic_stream = None
+            text, _err = voice.transcribe_wav(wav_path)
+            _log(f"listen_stop transcribed: {text!r}")
+            return json.dumps(text or "")
+        except Exception as e:
+            _log(f"listen_stop failed: {e}")
+            self._mic_stream = None
+            return json.dumps("")
 
     def say(self, text):
         try:

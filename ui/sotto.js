@@ -217,7 +217,16 @@
     setSpeaking(false);
     const n = speechQueue.shift();
     if (n) { speak(n.text, n.opts); return; }
-    if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
+    if (state === 'responding') {
+      setState('settling');
+      setTimeout(() => {
+        if (state === 'settling') {
+          setState('idle');
+          // speaking finished — start passive watch so user can talk back hands-free
+          setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 800);
+        }
+      }, 900);
+    }
   }
   function speak(text, opts) {
     opts = opts || {};
@@ -544,6 +553,7 @@
     text = (text || '').trim();
     if (!text) return;
     if (!isRetry) retries = 0;
+    stopPassiveWatch();
     if (speaking) stopSpeaking(true);
     lastMsg = text;
     setMode('exchange');
@@ -613,6 +623,8 @@
           }
           speakOut(e.text);
           followups(turn, e.followups || ['Tell me more', 'Do that again', 'Never mind']);
+          // after turn done, begin passive watching so user can speak without clicking
+          setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 1600);
         }
         else if (e.type === 'error') {
           callIf('log', 'error event: ' + (e.text || ''));
@@ -636,8 +648,18 @@
         if (state === 'thinking' || state === 'understanding') setState('responding');
         setTimeout(() => {
           if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
-          if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
-          else setState('idle');
+          if (state === 'responding') {
+            setState('settling');
+            setTimeout(() => {
+              if (state === 'settling') {
+                setState('idle');
+                setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 800);
+              }
+            }, 900);
+          } else {
+            setState('idle');
+            setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 800);
+          }
         }, reducedMedia.matches ? 150 : 1200);
       }
     }, 90);
@@ -656,13 +678,77 @@
 
   /* -------------------------------------------------------- listening */
   let listening = false, levelTimer = null, partialTimer = null;
+  let passiveWatcher = null, passiveActive = false;
+
+  /* ---- passive voice onset watcher: runs between turns, needs no click ---- */
+  function stopPassiveWatch() {
+    passiveActive = false;
+    if (passiveWatcher) { clearInterval(passiveWatcher); passiveWatcher = null; }
+  }
+
+  async function startPassiveWatch() {
+    const _isBusy = () => !['idle', 'ready', 'interrupted'].includes(state);
+    if (passiveActive || listening || speaking || _isBusy()) return;
+    const api = bridge();
+    if (!api || !hasApi('listen_start')) return;
+    stopPassiveWatch();
+    passiveActive = true;
+    // open mic stream in background (low cost — just reading level, no STT yet)
+    try { await api.listen_start(); } catch { passiveActive = false; return; }
+    let maxSeen = 0, onsetFrames = 0;
+    passiveWatcher = setInterval(async () => {
+      if (!passiveActive || listening || speaking || _isBusy()) { stopPassiveWatch(); try { await api.listen_stop(); } catch {} return; }
+      let lv = 0;
+      try { lv = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
+      if (lv > maxSeen) maxSeen = lv;
+      const thresh = Math.max(0.06, maxSeen * 0.35);
+      if (lv > thresh) { onsetFrames++; } else { onsetFrames = Math.max(0, onsetFrames - 1); }
+      // require 3 consecutive loud frames (~150ms) to avoid false triggers from ambient sound
+      if (onsetFrames >= 3) {
+        stopPassiveWatch();
+        // hand over the already-open mic stream to the active listener
+        callIf('log', 'passive-onset: voice detected, auto-listen');
+        listening = true;
+        setState('listening');
+        const live = $('#liveLine');
+        if (live) { live.hidden = false; live.classList.remove('dim'); live.innerHTML = '<span class="caret"></span>'; }
+        _startLevelTimer(api, true);
+      }
+    }, 50);
+  }
 
   function hideLive() { const live = $('#liveLine'); if (!live) return; clearInterval(partialTimer); partialTimer = null; live.hidden = true; live.innerHTML = ''; }
+  function _startLevelTimer(api, resumedFromPassive) {
+    const listenStart = performance.now();
+    let heardSound = resumedFromPassive, lastLoud = listenStart, maxSeen = 0;
+    let speechDuration = 0; // how long we've been above threshold
+    levelTimer = setInterval(async () => {
+      try { level = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
+      const now = performance.now();
+      if (level > maxSeen) maxSeen = level;
+      const thresh = Math.max(0.05, maxSeen * 0.28);
+      if (level > thresh) {
+        heardSound = true;
+        lastLoud = now;
+        speechDuration += 50; // ~50ms per interval tick
+      }
+      const elapsed = (now - listenStart) / 1000;
+      const silentFor = (now - lastLoud) / 1000;
+      // smarter stop: if you spoke ≥400ms, 0.9s silence is clearly done;
+      // if very short speech (<400ms), wait 1.6s to avoid cutting off slow starters
+      const silenceGate = speechDuration >= 400 ? 0.9 : 1.6;
+      if (elapsed > 0.6 && ((heardSound && silentFor > silenceGate) || (!heardSound && elapsed > 8) || elapsed > 60)) {
+        callIf('log', 'auto-stop heard=' + heardSound + ' spkDur=' + speechDuration + 'ms silent=' + silentFor.toFixed(2) + 's gate=' + silenceGate + 's');
+        stopListening();
+      }
+    }, 50);
+  }
 
-  async function startListening() {
+  async function startListening(fromPassive) {
     if (listening) return;
     const api = bridge();
-    if (!api) { toast('The assistant backend isn’t running — start the app normally.', 'NOTICE', 3600); return; }
+    if (!api) { toast('The assistant backend isn't running — start the app normally.', 'NOTICE', 3600); return; }
+    stopPassiveWatch(); // cancel passive watcher, we're now actively listening
     listening = true;
     setState('listening');
     const live = $('#liveLine');
@@ -674,23 +760,11 @@
         if (p != null && l) l.innerHTML = escapeHtml(String(p)) + '<span class="caret"></span>';
       }, 260);
     }
-    try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
-    /* auto end-of-speech: once you've spoken, ~1.8s of silence stops listening and sends */
-    const listenStart = performance.now();
-    let heardSound = false, lastLoud = listenStart, maxSeen = 0;
-    levelTimer = setInterval(async () => {
-      try { level = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
-      const now = performance.now();
-      if (level > maxSeen) maxSeen = level;
-      const thresh = Math.max(0.05, maxSeen * 0.28);
-      if (level > thresh) { heardSound = true; lastLoud = now; }
-      const elapsed = (now - listenStart) / 1000;
-      const silentFor = (now - lastLoud) / 1000;
-      if (elapsed > 1 && ((heardSound && silentFor > 1.8) || (!heardSound && elapsed > 8) || elapsed > 60)) {
-        callIf('log', 'auto-stop heard=' + heardSound + ' silent=' + silentFor.toFixed(1) + 's elapsed=' + elapsed.toFixed(1) + 's');
-        stopListening();
-      }
-    }, 50);
+    // if not coming from passive (which already opened the stream), open it now
+    if (!fromPassive) {
+      try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
+    }
+    _startLevelTimer(api, !!fromPassive);
   }
 
   async function stopListening() {
@@ -728,7 +802,9 @@
 
   function toggleTalk() {
     if (speaking) { stopSpeaking(); return; }
-    listening ? stopListening() : startListening();
+    if (listening) { stopListening(); return; }
+    stopPassiveWatch(); // cancel passive watcher before explicit listen
+    startListening();
   }
 
   /* ---------------------------------------------------------- sheets */
@@ -1039,6 +1115,7 @@
         e.preventDefault();
         if (e.repeat) return;
         if (speaking) { stopSpeaking(); return; }
+        stopPassiveWatch();
         if (state === 'idle' || state === 'ready' || state === 'waiting') startListening();
       }
     });
