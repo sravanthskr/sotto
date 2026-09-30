@@ -11,6 +11,141 @@
 </head>
 <body data-theme="light" data-mode="home" data-state="idle">
 
+<!-- ============================================================
+     VOICE PASSPHRASE LOCK SCREEN OVERLAY
+     ============================================================ -->
+<div class="lock-overlay" id="lockScreen" hidden>
+  <div class="lock-card">
+    <div class="lock-mark-wrap">
+      <div class="lock-aura"></div>
+      <svg class="lock-mark" width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="5" y="11" width="14" height="10" rx="3" stroke="var(--accent)" stroke-width="1.8"/>
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="12" cy="16" r="1.5" fill="var(--accent-strong)"/>
+      </svg>
+    </div>
+    <h2 class="lock-title" id="lockTitle">Protected by Voice</h2>
+    <p class="lock-sub" id="lockSub">Say your passphrase to unlock</p>
+
+    <!-- Visualizer / Voice Level indicator -->
+    <div class="lock-viz" id="lockViz">
+      <div class="lock-bar b1"></div>
+      <div class="lock-bar b2"></div>
+      <div class="lock-bar b3"></div>
+      <div class="lock-bar b4"></div>
+      <div class="lock-bar b5"></div>
+    </div>
+
+    <!-- Attempt indicators (dots) -->
+    <div class="lock-dots" id="lockDots">
+      <span class="l-dot"></span>
+      <span class="l-dot"></span>
+      <span class="l-dot"></span>
+    </div>
+
+    <p class="lock-feedback" id="lockFeedback" aria-live="polite"></p>
+
+    <!-- Fallback Password Box (appears on button or after 3 failed attempts) -->
+    <div class="lock-fallback" id="lockFallback" hidden>
+      <div class="lock-input-wrap">
+        <input type="password" id="lockPassInput" placeholder="Enter backup password" autocomplete="off" />
+        <button class="lock-submit-btn" id="btnLockPassSubmit" title="Unlock">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+      <p class="lock-err" id="lockPassErr"></p>
+    </div>
+
+    <div class="lock-actions">
+      <button class="btn-lock-text" id="btnSwitchToPass">Enter backup password</button>
+      <button class="btn-lock-text" id="btnSwitchToVoice" hidden>Speak passphrase instead</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     FIRST-RUN VOICE LOCK SETUP MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="lockSetupModal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="m-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+      </div>
+      <div>
+        <h3 class="modal-title">Voice Passphrase Lock</h3>
+        <p class="modal-sub">Secure your assistant with spoken words. No password needed to talk.</p>
+      </div>
+    </div>
+    <div class="modal-body">
+      <label class="m-label" for="setupPhraseInput">Spoken Passphrase / Sentence</label>
+      <div class="m-input-row">
+        <input type="text" id="setupPhraseInput" placeholder="e.g. open sotto or hello jarvis" />
+        <button class="btn-silent" id="btnRecordPhrase" title="Speak phrase to set">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+          <span id="btnRecordPhraseText">Speak</span>
+        </button>
+      </div>
+      <p class="m-help">You'll say this phrase whenever you open the app to unlock it.</p>
+
+      <label class="m-label" for="setupPasswordInput" style="margin-top:14px">Backup Typed Password</label>
+      <input type="password" id="setupPasswordInput" placeholder="Enter a secure backup password" />
+      <p class="m-help">Used if voice fails 3 times or when changing your lock phrase in Settings.</p>
+      
+      <p class="modal-err" id="setupModalErr"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-quiet" id="btnSkipLockSetup">Skip for now</button>
+      <button class="btn-accent" id="btnSaveLockSetup">Set Passphrase Lock</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MANAGE / CHANGE VOICE LOCK MODAL (FROM SETTINGS)
+     ============================================================ -->
+<div class="modal-overlay" id="lockManageModal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h3 class="modal-title" id="manageModalTitle">Manage Voice Lock</h3>
+        <p class="modal-sub">Verify your backup password to view or modify your passphrase.</p>
+      </div>
+      <button class="icon-btn" id="btnCloseLockManage" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="manageStepAuth">
+      <label class="m-label" for="manageCurrentPass">Current Backup Password</label>
+      <input type="password" id="manageCurrentPass" placeholder="Enter current password" />
+      <p class="modal-err" id="manageAuthErr"></p>
+      <div style="margin-top:14px;display:flex;justify-content:flex-end">
+        <button class="btn-accent" id="btnVerifyManageAuth">Verify</button>
+      </div>
+    </div>
+    <div class="modal-body" id="manageStepEdit" hidden>
+      <div class="current-phrase-box">
+        <span class="cp-label">Current spoken phrase:</span>
+        <span class="cp-text" id="displayCurrentPhrase">—</span>
+      </div>
+      <label class="m-label" for="manageNewPhrase" style="margin-top:12px">New Spoken Passphrase</label>
+      <div class="m-input-row">
+        <input type="text" id="manageNewPhrase" placeholder="Leave empty to keep current" />
+        <button class="btn-silent" id="btnRecordManagePhrase">Speak</button>
+      </div>
+      
+      <label class="m-label" for="manageNewPassword" style="margin-top:12px">New Backup Password</label>
+      <input type="password" id="manageNewPassword" placeholder="Leave empty to keep current" />
+
+      <p class="modal-err" id="manageEditErr"></p>
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+        <button class="btn-quiet danger" id="btnDisableLock">Disable Lock</button>
+        <button class="btn-accent" id="btnSaveLockChanges">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="frame">
   <header class="top">
     <div class="brand">
@@ -192,6 +327,16 @@
     <div class="setrow">
       <div class="s-info"><span class="s-lab">Test voice</span><span class="s-sub">Hear the current voice once</span></div>
       <button class="btn-silent" id="btnVoiceTest">Test</button>
+    </div>
+
+    <span class="group-label">Security & Voice Lock</span>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Voice Passphrase Lock</span><span class="s-sub" id="lockStatusSub">Speak words to unlock app on start</span></div>
+      <button class="switch" id="lockEnableSwitch" aria-pressed="false" aria-label="Voice Passphrase Lock"><i></i></button>
+    </div>
+    <div class="setrow" id="rowManageLock">
+      <div class="s-info"><span class="s-lab">Passphrase & Password</span><span class="s-sub">View/modify spoken phrase or backup password</span></div>
+      <button class="btn-silent" id="btnOpenManageLock">Manage…</button>
     </div>
 
     <span class="group-label">Keyboard</span>
