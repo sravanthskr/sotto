@@ -1361,3 +1361,5 @@ def set_voice(name):
 
 
 import tools_phase0  # noqa: E402,F401  (Phase 0 quick wins)
+
+import tools_phase1  # noqa: E402,F401  (Phase 1: email & calendar)

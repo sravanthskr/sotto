@@ -64,7 +64,6 @@ class Api:
         self._last_status = None
         self._turn_checked = False
         self._turn_leak = False
-        self._mic_stream = None
 
     # ---- lifecycle -----------------------------------------------------
     def start(self):
@@ -136,13 +135,6 @@ class Api:
             rows = _status_rows(str(result))
             if rows:
                 event["rows"] = rows
-        elif name in ("set_volume", "get_volume"):
-            m = re.search(r"(\d+)", str(result))
-            level = int(m.group(1)) if m else (args.get("percent") if isinstance(args, dict) else 50)
-            event["payload"] = {"level": level, "muted": "mute" in str(result).lower()}
-        elif name in ("control_media", "media_control"):
-            act = args.get("action", "") if isinstance(args, dict) else ""
-            event["payload"] = {"title": f"Media ({act or 'control'})", "artist": str(result), "playing": True, "pos": 0, "dur": 0}
         self._push(event)
 
     def _on_learned(self, facts):
@@ -186,10 +178,6 @@ class Api:
         self._last_status = None
         self._turn_checked = False
         self._turn_leak = False
-        try:
-            voice.stop_speaking()
-        except Exception:
-            pass
         low = text.lower().strip(" .!?")
         if self._last_reply and low in ("repeat that", "say that again", "say it again", "repeat", "again", "repeat it"):
             self._start_replay({"type": "speak_only", "text": self._last_reply})
@@ -389,6 +377,47 @@ class Api:
             _log(f"scan_apps failed: {e}")
             return json.dumps({"count": 0, "took": 0, "error": str(e)[:150]})
 
+    # ---- accounts (Phase 1) --------------------------------------------
+    # Credentials are entered in the app's Settings sheet and travel only to this
+    # process - they are never accepted through model tool calls.
+    def connect_email(self, address, password):
+        import mail
+        addr = str(address or "").strip()
+        _log(f"connect_email {addr}")
+        return json.dumps(mail.connect(addr, str(password or "")))
+
+    def disconnect_email(self):
+        import accounts
+        accounts.clear_email_account()
+        return json.dumps(True)
+
+    def connect_calendar_ics(self, url):
+        import accounts
+        import calendar_api
+        url = str(url or "").strip()
+        if not url:
+            return json.dumps("Error: paste the ICS link first.")
+        try:
+            text = calendar_api._fetch(url)
+            n = len(calendar_api.parse_events(text))
+            accounts.set_ics(url)
+            return json.dumps(f"Calendar linked - {n} events found.")
+        except Exception as e:
+            return json.dumps(f"Error: couldn't read that link ({str(e)[:120]}).")
+
+    def google_connect(self):
+        import calendar_api
+        import threading
+        if not calendar_api.google_configured():
+            return json.dumps("Google needs a one-time client id/secret in settings - see ACCOUNTS_SETUP.md. "
+                              "Quick email instead: use Email (app password).")
+        threading.Thread(target=calendar_api.start_google_oauth, daemon=True).start()
+        return json.dumps("Browser opened - finish the Google sign-in there.")
+
+    def accounts_status(self):
+        import accounts
+        return json.dumps(accounts.status_lines())
+
     def set_sound(self, on):
         from config import save_setting
         return json.dumps(bool(save_setting("sound_effects", bool(on))))
@@ -396,20 +425,6 @@ class Api:
     def set_wake(self, on):
         from config import save_setting
         return json.dumps(bool(save_setting("wake_word", bool(on))))
-
-    def set_volume(self, percent):
-        try:
-            res = tools.set_volume(int(percent))
-            return json.dumps({"ok": True, "result": res})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
-
-    def media_control(self, action):
-        try:
-            res = tools.control_media(str(action))
-            return json.dumps({"ok": True, "result": res})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
 
     def say_slow(self, text):
         try:
@@ -450,207 +465,8 @@ class Api:
         except Exception as e:
             return json.dumps({"text": "", "error": str(e)})
 
-    def listen_start(self):
-        try:
-            from audio import MicStream
-            if self._mic_stream:
-                try:
-                    self._mic_stream.stop()
-                except Exception:
-                    pass
-            self._mic_stream = MicStream()
-            self._mic_stream.start()
-            _log("listen_start")
-            return json.dumps(True)
-        except Exception as e:
-            _log(f"listen_start failed: {e}")
-            return json.dumps(False)
-
-    def listen_level(self):
-        if self._mic_stream:
-            return json.dumps(float(self._mic_stream.level))
-        return json.dumps(0.0)
-
-    def listen_stop(self):
-        if not self._mic_stream:
-            return json.dumps("")
-        try:
-            wav_path = self._mic_stream.stop()
-            self._mic_stream = None
-            text, _err = voice.transcribe_wav(wav_path)
-            _log(f"listen_stop transcribed: {text!r}")
-            return json.dumps(text or "")
-        except Exception as e:
-            _log(f"listen_stop failed: {e}")
-            self._mic_stream = None
-            return json.dumps("")
-
     def say(self, text):
         try:
             return json.dumps({"ok": bool(voice.speak(text))})
         except Exception as e:
             return json.dumps({"ok": False, "error": str(e)})
-
-    def stop_speaking(self):
-        try:
-            voice.stop_speaking()
-            return json.dumps({"ok": True})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
-
-    # ---- voice lock & password security ---------------------------------
-    def _normalize_phrase(self, text):
-        """Clean string for flexible voice matching: lower, strip punctuation, numbers to words/digits."""
-        if not text:
-            return ""
-        t = text.lower().strip()
-        t = re.sub(r"[^\w\s]", " ", t)
-        t = re.sub(r"\s+", " ", t).strip()
-        return t
-
-    def _hash_secret(self, val):
-        import hashlib
-        return hashlib.sha256(str(val).strip().encode("utf-8")).hexdigest()
-
-    def get_lock_status(self):
-        try:
-            import config
-            st = config.load_settings()
-            enabled = bool(st.get("lock_enabled", False))
-            setup_done = bool(st.get("lock_setup_done", False))
-            return json.dumps({
-                "ok": True,
-                "enabled": enabled,
-                "setup_done": setup_done,
-                "has_phrase": bool(st.get("lock_phrase")),
-            })
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e), "enabled": False, "setup_done": True})
-
-    def skip_lock_setup(self):
-        try:
-            import config
-            config.save_setting("lock_setup_done", True)
-            config.save_setting("lock_enabled", False)
-            return json.dumps({"ok": True})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
-
-    def setup_lock(self, phrase, password):
-        try:
-            import config
-            p_norm = self._normalize_phrase(phrase)
-            if not p_norm or len(p_norm) < 2:
-                return json.dumps({"ok": False, "error": "Spoken passphrase is too short."})
-            if not password or len(str(password).strip()) < 3:
-                return json.dumps({"ok": False, "error": "Backup password must be at least 3 characters."})
-            
-            config.save_setting("lock_phrase", p_norm)
-            config.save_setting("lock_password_hash", self._hash_secret(password))
-            config.save_setting("lock_enabled", True)
-            config.save_setting("lock_setup_done", True)
-            _log("setup_lock: Lock configured and enabled successfully")
-            return json.dumps({"ok": True})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
-
-    def verify_voice_phrase(self, text):
-        """Fuzzy match spoken text against saved passphrase."""
-        try:
-            import config
-            import difflib
-            st = config.load_settings()
-            saved = st.get("lock_phrase", "")
-            if not saved:
-                return json.dumps({"ok": True, "matched": True})
-            
-            spoken = self._normalize_phrase(text)
-            if not spoken:
-                return json.dumps({"ok": True, "matched": False, "reason": "No speech recognized"})
-            
-            # Exact match check
-            if spoken == saved:
-                return json.dumps({"ok": True, "matched": True})
-            
-            # Substring match (e.g. spoken phrase is inside longer sentence or vice versa)
-            if saved in spoken or spoken in saved:
-                return json.dumps({"ok": True, "matched": True})
-            
-            # Similarity ratio
-            ratio = difflib.SequenceMatcher(None, spoken, saved).ratio()
-            matched = ratio >= 0.78
-            _log(f"verify_voice_phrase: spoken='{spoken}', saved='{saved}', ratio={ratio:.2f}, matched={matched}")
-            return json.dumps({"ok": True, "matched": matched, "ratio": ratio})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e), "matched": False})
-
-    def verify_text_password(self, password):
-        try:
-            import config
-            st = config.load_settings()
-            saved_hash = st.get("lock_password_hash", "")
-            if not saved_hash:
-                return json.dumps({"ok": True, "matched": True})
-            
-            input_hash = self._hash_secret(password)
-            matched = (input_hash == saved_hash)
-            _log(f"verify_text_password: matched={matched}")
-            return json.dumps({"ok": True, "matched": matched})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e), "matched": False})
-
-    def change_lock(self, current_password, new_phrase, new_password):
-        """Verify current typed password before updating spoken phrase and/or password."""
-        try:
-            import config
-            st = config.load_settings()
-            saved_hash = st.get("lock_password_hash", "")
-            
-            if saved_hash:
-                input_hash = self._hash_secret(current_password)
-                if input_hash != saved_hash:
-                    return json.dumps({"ok": False, "error": "Incorrect current password."})
-            
-            if new_phrase is not None and str(new_phrase).strip():
-                p_norm = self._normalize_phrase(new_phrase)
-                if len(p_norm) < 2:
-                    return json.dumps({"ok": False, "error": "New spoken phrase is too short."})
-                config.save_setting("lock_phrase", p_norm)
-            
-            if new_password is not None and str(new_password).strip():
-                if len(str(new_password).strip()) < 3:
-                    return json.dumps({"ok": False, "error": "New password must be at least 3 characters."})
-                config.save_setting("lock_password_hash", self._hash_secret(new_password))
-                
-            return json.dumps({"ok": True})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
-
-    def get_current_phrase(self, password):
-        """View the current spoken phrase after verifying with typed password."""
-        try:
-            import config
-            st = config.load_settings()
-            saved_hash = st.get("lock_password_hash", "")
-            if saved_hash:
-                input_hash = self._hash_secret(password)
-                if input_hash != saved_hash:
-                    return json.dumps({"ok": False, "error": "Incorrect password."})
-            return json.dumps({"ok": True, "phrase": st.get("lock_phrase", "")})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
-
-    def set_lock_enabled(self, enabled, password):
-        try:
-            import config
-            st = config.load_settings()
-            saved_hash = st.get("lock_password_hash", "")
-            if saved_hash:
-                input_hash = self._hash_secret(password)
-                if input_hash != saved_hash:
-                    return json.dumps({"ok": False, "error": "Incorrect password."})
-            config.save_setting("lock_enabled", bool(enabled))
-            return json.dumps({"ok": True})
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)})
-

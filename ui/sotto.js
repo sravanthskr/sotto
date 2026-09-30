@@ -217,16 +217,7 @@
     setSpeaking(false);
     const n = speechQueue.shift();
     if (n) { speak(n.text, n.opts); return; }
-    if (state === 'responding') {
-      setState('settling');
-      setTimeout(() => {
-        if (state === 'settling') {
-          setState('idle');
-          // speaking finished — start passive watch so user can talk back hands-free
-          setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 800);
-        }
-      }, 900);
-    }
+    if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
   }
   function speak(text, opts) {
     opts = opts || {};
@@ -553,7 +544,6 @@
     text = (text || '').trim();
     if (!text) return;
     if (!isRetry) retries = 0;
-    stopPassiveWatch();
     if (speaking) stopSpeaking(true);
     lastMsg = text;
     setMode('exchange');
@@ -621,12 +611,8 @@
             voice.dataset.len = words <= 3 ? 'short' : words > 18 ? 'long' : 'mid';
             respActions(turn, answer);
           }
-          if (!said && e.text) {
-            speakOut(e.text);
-          }
+          speakOut(e.text);
           followups(turn, e.followups || ['Tell me more', 'Do that again', 'Never mind']);
-          // after turn done, begin passive watching so user can speak without clicking
-          setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 1600);
         }
         else if (e.type === 'error') {
           callIf('log', 'error event: ' + (e.text || ''));
@@ -650,18 +636,8 @@
         if (state === 'thinking' || state === 'understanding') setState('responding');
         setTimeout(() => {
           if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
-          if (state === 'responding') {
-            setState('settling');
-            setTimeout(() => {
-              if (state === 'settling') {
-                setState('idle');
-                setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 800);
-              }
-            }, 900);
-          } else {
-            setState('idle');
-            setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 800);
-          }
+          if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
+          else setState('idle');
         }, reducedMedia.matches ? 150 : 1200);
       }
     }, 90);
@@ -680,77 +656,13 @@
 
   /* -------------------------------------------------------- listening */
   let listening = false, levelTimer = null, partialTimer = null;
-  let passiveWatcher = null, passiveActive = false;
-
-  /* ---- passive voice onset watcher: runs between turns, needs no click ---- */
-  function stopPassiveWatch() {
-    passiveActive = false;
-    if (passiveWatcher) { clearInterval(passiveWatcher); passiveWatcher = null; }
-  }
-
-  async function startPassiveWatch() {
-    const _isBusy = () => !['idle', 'ready', 'interrupted'].includes(state);
-    if (passiveActive || listening || speaking || _isBusy()) return;
-    const api = bridge();
-    if (!api || !hasApi('listen_start')) return;
-    stopPassiveWatch();
-    passiveActive = true;
-    // open mic stream in background (low cost — just reading level, no STT yet)
-    try { await api.listen_start(); } catch { passiveActive = false; return; }
-    let maxSeen = 0, onsetFrames = 0;
-    passiveWatcher = setInterval(async () => {
-      if (!passiveActive || listening || speaking || _isBusy()) { stopPassiveWatch(); try { await api.listen_stop(); } catch {} return; }
-      let lv = 0;
-      try { lv = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
-      if (lv > maxSeen) maxSeen = lv;
-      const thresh = Math.max(0.06, maxSeen * 0.35);
-      if (lv > thresh) { onsetFrames++; } else { onsetFrames = Math.max(0, onsetFrames - 1); }
-      // require 3 consecutive loud frames (~150ms) to avoid false triggers from ambient sound
-      if (onsetFrames >= 3) {
-        stopPassiveWatch();
-        // hand over the already-open mic stream to the active listener
-        callIf('log', 'passive-onset: voice detected, auto-listen');
-        listening = true;
-        setState('listening');
-        const live = $('#liveLine');
-        if (live) { live.hidden = false; live.classList.remove('dim'); live.innerHTML = '<span class="caret"></span>'; }
-        _startLevelTimer(api, true);
-      }
-    }, 50);
-  }
 
   function hideLive() { const live = $('#liveLine'); if (!live) return; clearInterval(partialTimer); partialTimer = null; live.hidden = true; live.innerHTML = ''; }
-  function _startLevelTimer(api, resumedFromPassive) {
-    const listenStart = performance.now();
-    let heardSound = resumedFromPassive, lastLoud = listenStart, maxSeen = 0;
-    let speechDuration = 0; // how long we've been above threshold
-    levelTimer = setInterval(async () => {
-      try { level = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
-      const now = performance.now();
-      if (level > maxSeen) maxSeen = level;
-      const thresh = Math.max(0.05, maxSeen * 0.28);
-      if (level > thresh) {
-        heardSound = true;
-        lastLoud = now;
-        speechDuration += 50; // ~50ms per interval tick
-      }
-      const elapsed = (now - listenStart) / 1000;
-      const silentFor = (now - lastLoud) / 1000;
-      // smarter stop: if you spoke ≥400ms, 0.9s silence is clearly done;
-      // if very short speech (<400ms), wait 1.6s to avoid cutting off slow starters
-      const silenceGate = speechDuration >= 400 ? 0.9 : 1.6;
-      if (elapsed > 0.6 && ((heardSound && silentFor > silenceGate) || (!heardSound && elapsed > 8) || elapsed > 60)) {
-        callIf('log', 'auto-stop heard=' + heardSound + ' spkDur=' + speechDuration + 'ms silent=' + silentFor.toFixed(2) + 's gate=' + silenceGate + 's');
-        stopListening();
-      }
-    }, 50);
-  }
 
-  async function startListening(fromPassive) {
+  async function startListening() {
     if (listening) return;
     const api = bridge();
-    if (!api) { toast("The assistant backend isn't running — start the app normally.", 'NOTICE', 3600); return; }
-    stopPassiveWatch(); // cancel passive watcher, we're now actively listening
+    if (!api) { toast('The assistant backend isn’t running — start the app normally.', 'NOTICE', 3600); return; }
     listening = true;
     setState('listening');
     const live = $('#liveLine');
@@ -762,11 +674,23 @@
         if (p != null && l) l.innerHTML = escapeHtml(String(p)) + '<span class="caret"></span>';
       }, 260);
     }
-    // if not coming from passive (which already opened the stream), open it now
-    if (!fromPassive) {
-      try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
-    }
-    _startLevelTimer(api, !!fromPassive);
+    try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
+    /* auto end-of-speech: once you've spoken, ~1.8s of silence stops listening and sends */
+    const listenStart = performance.now();
+    let heardSound = false, lastLoud = listenStart, maxSeen = 0;
+    levelTimer = setInterval(async () => {
+      try { level = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
+      const now = performance.now();
+      if (level > maxSeen) maxSeen = level;
+      const thresh = Math.max(0.05, maxSeen * 0.28);
+      if (level > thresh) { heardSound = true; lastLoud = now; }
+      const elapsed = (now - listenStart) / 1000;
+      const silentFor = (now - lastLoud) / 1000;
+      if (elapsed > 1 && ((heardSound && silentFor > 1.8) || (!heardSound && elapsed > 8) || elapsed > 60)) {
+        callIf('log', 'auto-stop heard=' + heardSound + ' silent=' + silentFor.toFixed(1) + 's elapsed=' + elapsed.toFixed(1) + 's');
+        stopListening();
+      }
+    }, 50);
   }
 
   async function stopListening() {
@@ -804,9 +728,7 @@
 
   function toggleTalk() {
     if (speaking) { stopSpeaking(); return; }
-    if (listening) { stopListening(); return; }
-    stopPassiveWatch(); // cancel passive watcher before explicit listen
-    startListening();
+    listening ? stopListening() : startListening();
   }
 
   /* ---------------------------------------------------------- sheets */
@@ -986,271 +908,18 @@
     toast(n ? ('Found ' + n + ' apps on this computer') : 'Nothing found', 'SCAN', 2600);
   }
 
-  /* ============================================================
-     VOICE PASSPHRASE LOCK & SECURITY CONTROLLER
-     ============================================================ */
-  const LockSystem = {
-    isLocked: false,
-    lockAttempts: 0,
-    maxVoiceAttempts: 3,
-    lockListenerActive: false,
-    lockStreamTimer: null,
-    recordingTarget: null, // 'setup' | 'manage' | null
-
-    async checkStatus() {
-      const api = bridge();
-      if (!api || !hasApi('get_lock_status')) return { enabled: false, setup_done: true };
-      try {
-        const res = JSON.parse((await api.get_lock_status()) || '{}');
-        return res;
-      } catch {
-        return { enabled: false, setup_done: true };
-      }
-    },
-
-    updateSettingsUI(enabled) {
-      const sw = $('#lockEnableSwitch');
-      const sub = $('#lockStatusSub');
-      if (sw) sw.setAttribute('aria-pressed', String(enabled));
-      if (sub) sub.textContent = enabled ? 'Passphrase active — locks app on start' : 'Disabled — app opens directly';
-      const rowManage = $('#rowManageLock');
-      if (rowManage) rowManage.style.display = enabled ? 'flex' : 'none';
-    },
-
-    showLockOverlay() {
-      this.isLocked = true;
-      this.lockAttempts = 0;
-      const overlay = $('#lockScreen');
-      if (!overlay) return;
-      overlay.hidden = false;
-      overlay.classList.remove('unlocking');
-      $('#lockFeedback').textContent = 'Listening for your passphrase…';
-      $('#lockFeedback').className = 'lock-feedback';
-      $('#lockFallback').hidden = true;
-      $('#btnSwitchToVoice').hidden = true;
-      $('#btnSwitchToPass').hidden = false;
-      this.renderDots(0);
-      this.startLockVoiceListening();
-    },
-
-    dismissLockOverlay() {
-      this.isLocked = false;
-      this.stopLockVoiceListening();
-      const overlay = $('#lockScreen');
-      if (!overlay) return;
-      overlay.classList.add('unlocking');
-      setTimeout(() => {
-        overlay.hidden = true;
-        overlay.classList.remove('unlocking');
-      }, 400);
-    },
-
-    renderDots(failedCount) {
-      const dots = $$('#lockDots .l-dot');
-      dots.forEach((d, idx) => {
-        d.className = 'l-dot';
-        if (idx < failedCount) {
-          d.classList.add('fail');
-        } else if (idx === failedCount) {
-          d.classList.add('active');
-        }
-      });
-    },
-
-    async startLockVoiceListening() {
-      const api = bridge();
-      if (!api || !hasApi('listen_start')) return;
-      this.stopLockVoiceListening();
-      this.lockListenerActive = true;
-      try {
-        await api.listen_start();
-      } catch {
-        this.lockListenerActive = false;
-        return;
-      }
-
-      const listenStart = performance.now();
-      let heardSound = false, lastLoud = listenStart, maxSeen = 0;
-      let speechDuration = 0;
-
-      this.lockStreamTimer = setInterval(async () => {
-        if (!this.lockListenerActive || !this.isLocked) {
-          this.stopLockVoiceListening();
-          return;
-        }
-        let lv = 0;
-        try { lv = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
-        const viz = $('#lockViz');
-        if (viz) viz.style.setProperty('--lvl', lv.toFixed(3));
-
-        const now = performance.now();
-        if (lv > maxSeen) maxSeen = lv;
-        const thresh = Math.max(0.05, maxSeen * 0.28);
-        if (lv > thresh) {
-          heardSound = true;
-          lastLoud = now;
-          speechDuration += 50;
-        }
-
-        const elapsed = (now - listenStart) / 1000;
-        const silentFor = (now - lastLoud) / 1000;
-        const silenceGate = speechDuration >= 400 ? 0.9 : 1.6;
-
-        if (elapsed > 0.6 && ((heardSound && silentFor > silenceGate) || (!heardSound && elapsed > 8) || elapsed > 20)) {
-          this.stopLockVoiceListening();
-          $('#lockFeedback').textContent = 'Verifying…';
-          let transcript = '';
-          try {
-            transcript = (await api.listen_stop()) || '';
-          } catch {
-            transcript = '';
-          }
-          await this.handleVoiceAttempt(transcript);
-        }
-      }, 50);
-    },
-
-    stopLockVoiceListening() {
-      this.lockListenerActive = false;
-      if (this.lockStreamTimer) {
-        clearInterval(this.lockStreamTimer);
-        this.lockStreamTimer = null;
-      }
-      const viz = $('#lockViz');
-      if (viz) viz.style.setProperty('--lvl', '0');
-    },
-
-    async handleVoiceAttempt(text) {
-      if (!this.isLocked) return;
-      const api = bridge();
-      if (!api) return;
-
-      if (!text || !text.trim()) {
-        $('#lockFeedback').textContent = 'Didn’t hear anything. Try saying it clearly.';
-        $('#lockFeedback').className = 'lock-feedback err';
-        setTimeout(() => {
-          if (this.isLocked && this.lockAttempts < this.maxVoiceAttempts) {
-            $('#lockFeedback').textContent = 'Say your passphrase to unlock';
-            $('#lockFeedback').className = 'lock-feedback';
-            this.startLockVoiceListening();
-          }
-        }, 1200);
-        return;
-      }
-
-      let res = { ok: false, matched: false };
-      try {
-        res = JSON.parse((await api.verify_voice_phrase(text)) || '{}');
-      } catch {}
-
-      if (res.matched) {
-        $('#lockFeedback').textContent = 'Passphrase accepted. Welcome!';
-        $('#lockFeedback').className = 'lock-feedback';
-        toast('Unlocked with Voice', 'SECURITY', 2000);
-        this.dismissLockOverlay();
-      } else {
-        this.lockAttempts++;
-        this.renderDots(this.lockAttempts);
-        $('#lockFeedback').textContent = `Passphrase incorrect (${this.lockAttempts}/${this.maxVoiceAttempts})`;
-        $('#lockFeedback').className = 'lock-feedback err';
-
-        if (this.lockAttempts >= this.maxVoiceAttempts) {
-          this.showFallbackPassword();
-        } else {
-          setTimeout(() => {
-            if (this.isLocked) {
-              $('#lockFeedback').textContent = 'Say your passphrase to unlock';
-              $('#lockFeedback').className = 'lock-feedback';
-              this.startLockVoiceListening();
-            }
-          }, 1400);
-        }
-      }
-    },
-
-    showFallbackPassword() {
-      this.stopLockVoiceListening();
-      $('#lockFallback').hidden = false;
-      $('#lockPassInput').value = '';
-      $('#lockPassErr').textContent = '';
-      $('#lockPassInput').focus();
-      $('#lockFeedback').textContent = 'Maximum voice attempts reached. Enter backup password.';
-      $('#lockFeedback').className = 'lock-feedback';
-      $('#btnSwitchToVoice').hidden = false;
-      $('#btnSwitchToPass').hidden = true;
-    },
-
-    async handlePasswordUnlock() {
-      const pw = $('#lockPassInput').value;
-      if (!pw) {
-        $('#lockPassErr').textContent = 'Please enter your password.';
-        return;
-      }
-      const api = bridge();
-      if (!api) return;
-      $('#lockPassErr').textContent = 'Verifying…';
-      try {
-        const res = JSON.parse((await api.verify_text_password(pw)) || '{}');
-        if (res.matched) {
-          toast('Unlocked with Password', 'SECURITY', 2000);
-          this.dismissLockOverlay();
-        } else {
-          $('#lockPassErr').textContent = 'Incorrect password. Try again.';
-          $('#lockPassInput').value = '';
-          $('#lockPassInput').focus();
-        }
-      } catch (e) {
-        $('#lockPassErr').textContent = 'Verification error.';
-      }
-    },
-
-    // Record voice helper for input boxes (setup modal & manage modal)
-    async recordPhraseInto(inputEl, btnEl, btnTextEl) {
-      const api = bridge();
-      if (!api || !hasApi('listen_start')) return;
-      if (btnEl.dataset.recording === '1') {
-        // Stop recording early
-        btnEl.dataset.recording = '0';
-        if (btnTextEl) btnTextEl.textContent = 'Speak';
-        try {
-          const t = (await api.listen_stop()) || '';
-          if (t) inputEl.value = t.trim();
-        } catch {}
-        return;
-      }
-
-      btnEl.dataset.recording = '1';
-      if (btnTextEl) btnTextEl.textContent = 'Listening…';
-      try { await api.listen_start(); } catch { btnEl.dataset.recording = '0'; if (btnTextEl) btnTextEl.textContent = 'Speak'; return; }
-
-      const startTime = performance.now();
-      let lastLoud = startTime, heard = false, maxSeen = 0, spDur = 0;
-
-      const tTimer = setInterval(async () => {
-        if (btnEl.dataset.recording !== '1') { clearInterval(tTimer); return; }
-        let lv = 0;
-        try { lv = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
-        const now = performance.now();
-        if (lv > maxSeen) maxSeen = lv;
-        if (lv > Math.max(0.05, maxSeen * 0.28)) { heard = true; lastLoud = now; spDur += 50; }
-        const elapsed = (now - startTime) / 1000;
-        const silentFor = (now - lastLoud) / 1000;
-        const gate = spDur >= 400 ? 0.9 : 1.6;
-
-        if (elapsed > 0.6 && ((heard && silentFor > gate) || (!heard && elapsed > 6) || elapsed > 15)) {
-          clearInterval(tTimer);
-          btnEl.dataset.recording = '0';
-          if (btnTextEl) btnTextEl.textContent = 'Speak';
-          let txt = '';
-          try { txt = (await api.listen_stop()) || ''; } catch {}
-          if (txt && txt.trim()) {
-            inputEl.value = txt.trim();
-          }
-        }
-      }, 50);
-    }
-  };
-
+  /* ------------------------------------------------------------- accounts */
+  async function refreshAccounts() {
+    try {
+      const rows = JSON.parse((await callIf('accounts_status')) || '[]');
+      const g = rows.find((r) => r.startsWith('google'));
+      const e = rows.find((r) => r.startsWith('email'));
+      const c = rows.find((r) => r.startsWith('calendar'));
+      if ($('#accGoogle')) $('#accGoogle').textContent = g ? ('Connected — ' + g.split(': ')[1]) : 'Gmail + Calendar, full access';
+      if ($('#accEmail')) $('#accEmail').textContent = e ? ('Connected — ' + e.split(': ')[1]) : 'Gmail / Outlook — read, search, send';
+      if ($('#accIcs')) $('#accIcs').textContent = c ? 'Linked (read-only)' : 'Read-only ICS link (30-second setup)';
+    } catch {}
+  }
 
   async function boot() {
     sizeCanvas();
@@ -1274,26 +943,10 @@
         }
         if (info.version) $('#aboutLine').textContent = 'Sotto · ' + info.version;
         if (info.apps) $('#scanCount').textContent = info.apps + ' apps ready — rescan anytime';
+        refreshAccounts();
         if (info.scan_needed) {
           showPrompt('First time here? Let me look at what\u2019s installed on this computer once — then I can open your apps by name. Rescan anytime in Settings.',
             { action: 'Scan now', onAction: () => runAppScan() });
-        }
-      } catch {}
-
-      // Check lock status
-      try {
-        const lockSt = await LockSystem.checkStatus();
-        LockSystem.updateSettingsUI(lockSt.enabled);
-        if (lockSt.enabled) {
-          LockSystem.showLockOverlay();
-        } else if (!lockSt.setup_done) {
-          // First-time setup prompt
-          setTimeout(() => {
-            $('#lockSetupModal').hidden = false;
-            $('#setupPhraseInput').value = '';
-            $('#setupPasswordInput').value = '';
-            $('#setupModalErr').textContent = '';
-          }, 800);
         }
       } catch {}
     }
@@ -1345,6 +998,33 @@
 
     $('#voiceSelect').addEventListener('change', (e) => callIf('set_voice', e.target.value));
     $('#btnScan').addEventListener('click', () => runAppScan());
+    $('#btnEmailSetup').addEventListener('click', () => openSheet('sheetEmail'));
+    $('#btnIcsSetup').addEventListener('click', () => openSheet('sheetIcs'));
+    $('#btnGoogleConnect').addEventListener('click', async () => {
+      const msg = JSON.parse((await callIf('google_connect')) || '""');
+      toast(typeof msg === 'string' && msg ? msg : 'Browser opened — finish sign-in there.', 'ACCOUNTS', 4200);
+      refreshAccounts();
+    });
+    $('#btnEmailConnect').addEventListener('click', async () => {
+      const addr = $('#emailAddr').value.trim();
+      const pw = $('#emailPass').value;
+      if (!addr || !pw) { toast('Fill in both fields first.', 'ACCOUNTS', 2600); return; }
+      const btn = $('#btnEmailConnect');
+      btn.disabled = true; btn.textContent = 'Connecting…';
+      let msg = '';
+      try { msg = JSON.parse((await callIf('connect_email', addr, pw)) || '""'); } catch {}
+      btn.disabled = false; btn.textContent = 'Connect';
+      $('#emailPass').value = '';
+      toast(typeof msg === 'string' && msg ? msg : 'Done.', 'ACCOUNTS', 4200);
+      refreshAccounts();
+    });
+    $('#btnIcsConnect').addEventListener('click', async () => {
+      const url = $('#icsUrl').value.trim();
+      let msg = '';
+      try { msg = JSON.parse((await callIf('connect_calendar_ics', url)) || '""'); } catch {}
+      toast(typeof msg === 'string' && msg ? msg : 'Done.', 'ACCOUNTS', 4200);
+      refreshAccounts();
+    });
     $('#btnVoiceTest').addEventListener('click', () => {
       const btn = $('#btnVoiceTest');
       if (speaking) { stopSpeaking(true); btn.textContent = 'Test'; return; }
@@ -1378,131 +1058,6 @@
       toast(on ? 'Motion reduced' : 'Full motion', 'SETTING', 1600);
     });
 
-    // Lock screen switch & button handlers
-    $('#btnSwitchToPass').addEventListener('click', () => LockSystem.showFallbackPassword());
-    $('#btnSwitchToVoice').addEventListener('click', () => {
-      $('#lockFallback').hidden = true;
-      $('#btnSwitchToVoice').hidden = true;
-      $('#btnSwitchToPass').hidden = false;
-      $('#lockFeedback').textContent = 'Say your passphrase to unlock';
-      $('#lockFeedback').className = 'lock-feedback';
-      LockSystem.startLockVoiceListening();
-    });
-    $('#btnLockPassSubmit').addEventListener('click', () => LockSystem.handlePasswordUnlock());
-    $('#lockPassInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') LockSystem.handlePasswordUnlock(); });
-
-    // Lock setup modal handlers
-    $('#btnRecordPhrase').addEventListener('click', () => {
-      LockSystem.recordPhraseInto($('#setupPhraseInput'), $('#btnRecordPhrase'), $('#btnRecordPhraseText'));
-    });
-    $('#btnSkipLockSetup').addEventListener('click', async () => {
-      $('#lockSetupModal').hidden = true;
-      await callIf('skip_lock_setup');
-      toast('Lock setup skipped', 'SECURITY', 2000);
-    });
-    $('#btnSaveLockSetup').addEventListener('click', async () => {
-      const phrase = ($('#setupPhraseInput').value || '').trim();
-      const pw = ($('#setupPasswordInput').value || '').trim();
-      if (!phrase) { $('#setupModalErr').textContent = 'Please enter or speak a passphrase.'; return; }
-      if (!pw || pw.length < 3) { $('#setupModalErr').textContent = 'Backup password must be at least 3 characters.'; return; }
-      $('#setupModalErr').textContent = 'Saving…';
-      const res = JSON.parse((await callIf('setup_lock', phrase, pw)) || '{}');
-      if (res.ok) {
-        $('#lockSetupModal').hidden = true;
-        LockSystem.updateSettingsUI(true);
-        toast('Voice Passphrase Lock Active', 'SECURITY', 2500);
-      } else {
-        $('#setupModalErr').textContent = res.error || 'Failed to save.';
-      }
-    });
-
-    // Settings Lock toggle & Manage modal handlers
-    $('#lockEnableSwitch').addEventListener('click', async (e) => {
-      const isCurrentlyOn = e.currentTarget.getAttribute('aria-pressed') === 'true';
-      if (!isCurrentlyOn) {
-        // Turning ON: open setup modal or manage modal
-        const st = await LockSystem.checkStatus();
-        if (st.has_phrase) {
-          // Re-enable
-          $('#lockManageModal').hidden = false;
-          $('#manageStepAuth').hidden = false;
-          $('#manageStepEdit').hidden = true;
-          $('#manageCurrentPass').value = '';
-          $('#manageAuthErr').textContent = '';
-        } else {
-          $('#lockSetupModal').hidden = false;
-          $('#setupPhraseInput').value = '';
-          $('#setupPasswordInput').value = '';
-          $('#setupModalErr').textContent = '';
-        }
-      } else {
-        // Turning OFF: require password verification
-        $('#lockManageModal').hidden = false;
-        $('#manageStepAuth').hidden = false;
-        $('#manageStepEdit').hidden = true;
-        $('#manageCurrentPass').value = '';
-        $('#manageAuthErr').textContent = '';
-      }
-    });
-
-    $('#btnOpenManageLock').addEventListener('click', () => {
-      $('#lockManageModal').hidden = false;
-      $('#manageStepAuth').hidden = false;
-      $('#manageStepEdit').hidden = true;
-      $('#manageCurrentPass').value = '';
-      $('#manageAuthErr').textContent = '';
-    });
-    $('#btnCloseLockManage').addEventListener('click', () => {
-      $('#lockManageModal').hidden = true;
-    });
-
-    let currentVerifiedPass = '';
-    $('#btnVerifyManageAuth').addEventListener('click', async () => {
-      const pw = ($('#manageCurrentPass').value || '').trim();
-      if (!pw) { $('#manageAuthErr').textContent = 'Enter password.'; return; }
-      $('#manageAuthErr').textContent = 'Checking…';
-      const res = JSON.parse((await callIf('get_current_phrase', pw)) || '{}');
-      if (res.ok) {
-        currentVerifiedPass = pw;
-        $('#manageStepAuth').hidden = true;
-        $('#manageStepEdit').hidden = false;
-        $('#displayCurrentPhrase').textContent = res.phrase || 'None set';
-        $('#manageNewPhrase').value = '';
-        $('#manageNewPassword').value = '';
-        $('#manageEditErr').textContent = '';
-      } else {
-        $('#manageAuthErr').textContent = res.error || 'Incorrect password.';
-      }
-    });
-
-    $('#btnRecordManagePhrase').addEventListener('click', () => {
-      LockSystem.recordPhraseInto($('#manageNewPhrase'), $('#btnRecordManagePhrase'), null);
-    });
-
-    $('#btnSaveLockChanges').addEventListener('click', async () => {
-      const newPhrase = $('#manageNewPhrase').value.trim();
-      const newPass = $('#manageNewPassword').value.trim();
-      $('#manageEditErr').textContent = 'Saving changes…';
-      const res = JSON.parse((await callIf('change_lock', currentVerifiedPass, newPhrase || null, newPass || null)) || '{}');
-      if (res.ok) {
-        $('#lockManageModal').hidden = true;
-        toast('Voice Lock settings updated', 'SECURITY', 2200);
-      } else {
-        $('#manageEditErr').textContent = res.error || 'Failed to update.';
-      }
-    });
-
-    $('#btnDisableLock').addEventListener('click', async () => {
-      const res = JSON.parse((await callIf('set_lock_enabled', false, currentVerifiedPass)) || '{}');
-      if (res.ok) {
-        $('#lockManageModal').hidden = true;
-        LockSystem.updateSettingsUI(false);
-        toast('Voice Lock Disabled', 'SECURITY', 2200);
-      } else {
-        $('#manageEditErr').textContent = res.error || 'Failed to disable.';
-      }
-    });
-
     $('#btnSend').addEventListener('click', () => { const v = $('#typeInput').value; $('#typeInput').value = ''; setTyping(false); send(v); });
     $('#typeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; setTyping(false); send(v); } });
     document.querySelectorAll('[data-say]').forEach(c => c.addEventListener('click', () => send(c.dataset.say)));
@@ -1510,12 +1065,7 @@
     /* keyboard: hold Space to talk (release sends) · Esc dismiss · ⌘K type
        Space is voice-first: it always means "the voice", even when a button has focus. */
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        if (!$('#lockSetupModal').hidden) $('#lockSetupModal').hidden = true;
-        if (!$('#lockManageModal').hidden) $('#lockManageModal').hidden = true;
-        closeQuick(); closeSheets(); setTyping(false);
-      }
-      if (LockSystem.isLocked) return; // ignore main shortcuts when locked behind passphrase
+      if (e.key === 'Escape') { closeQuick(); closeSheets(); setTyping(false); }
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setTyping(true); return; }
       if (mod && e.shiftKey) {
@@ -1530,12 +1080,10 @@
         e.preventDefault();
         if (e.repeat) return;
         if (speaking) { stopSpeaking(); return; }
-        stopPassiveWatch();
         if (state === 'idle' || state === 'ready' || state === 'waiting') startListening();
       }
     });
     document.addEventListener('keyup', (e) => {
-      if (LockSystem.isLocked) return;
       const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
       if (e.code === 'Space' && !typing) {
         e.preventDefault();
