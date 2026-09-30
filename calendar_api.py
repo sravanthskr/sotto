@@ -179,6 +179,7 @@ def start_google_oauth(timeout=180):
         def do_GET(self):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             result["code"] = (q.get("code") or [""])[0]
+            result["error"] = (q.get("error") or [""])[0]
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -199,6 +200,10 @@ def start_google_oauth(timeout=180):
     server.server_close()
     code = result.get("code")
     if not code:
+        if result.get("error") == "access_denied":
+            return ("Google refused the sign-in (access_denied). Usual fix: add your Google address as a Test "
+                    "user in Google Cloud -> APIs & Services -> OAuth consent screen -> Test users, save, then "
+                    "click Connect again.")
         return "Error: I didn't get the Google sign-in back (timed out?). Try again."
     data = urllib.parse.urlencode({
         "code": code, "client_id": cid, "client_secret": secret,
