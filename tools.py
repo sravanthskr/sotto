@@ -546,7 +546,7 @@ def control_media(action):
         return f"Error: {e}"
 
 
-@tool(name="read_clipboard", description="Read the current clipboard text.")
+@tool(name="read_clipboard", description=("Read the current clipboard text. Call this FIRST when the user says 'this', 'what I copied', 'my clipboard', or asks to explain / fix / summarize / translate / turn-into-email something without naming a file."))
 def read_clipboard():
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
@@ -1358,3 +1358,6 @@ def set_voice(name):
     if save_setting("voice_name", match):
         return f"Voice set to '{match}' (restart to take effect)."
     return "Error: couldn't save the setting."
+
+
+import tools_phase0  # noqa: E402,F401  (Phase 0 quick wins)

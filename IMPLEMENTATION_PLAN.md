@@ -15,6 +15,14 @@ _"Smooth?" = will it work reliably once built (research classes: A/B = smooth, C
 ## PHASE 0 — Quick Wins (🟢 Easy · all local, no accounts, no risk)
 _Goal: make it feel smarter within days, using what already exists (clipboard, files, screenshots)._
 
+**STATUS (2026-09-30): ✅ BUILT & TESTED — all ten items live (75 tools total).**
+New tools: `read_pdf` · `save_text_file` · `read_screen` (Windows OCR) · `read_window_text` (UIA) ·
+`run_command` · `type_text` · `press_keys` · `save_routine`/`list_routines`/`run_routine` ·
+`index_folder`/`smart_find` (local semantic search, fastembed MiniLM).
+Verified live: terminal (echo + inline python = 42), PDF (92-page script read), OCR (read the
+on-screen console text), UIA (read a Notepad window), typing (35 chars + Enter into Notepad),
+routines (saved + ran), semantic search (68 files indexed; "voice conversion worker" → voice_convert.py, 0.4s).
+
 | # | Feature | Difficulty | Mechanism | Smooth? | Notes |
 |---|---|---|---|---|---|
 | 0.1 | Clipboard intelligence — "explain this / fix this code / summarize / translate what I copied / turn this into an email" | 🟢 | clipboard read (exists) + LLM | A | hours of work; immediate wow |
