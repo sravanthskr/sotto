@@ -186,6 +186,10 @@ class Api:
         self._last_status = None
         self._turn_checked = False
         self._turn_leak = False
+        try:
+            voice.stop_speaking()
+        except Exception:
+            pass
         low = text.lower().strip(" .!?")
         if self._last_reply and low in ("repeat that", "say that again", "say it again", "repeat", "again", "repeat it"):
             self._start_replay({"type": "speak_only", "text": self._last_reply})
@@ -484,6 +488,13 @@ class Api:
     def say(self, text):
         try:
             return json.dumps({"ok": bool(voice.speak(text))})
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)})
+
+    def stop_speaking(self):
+        try:
+            voice.stop_speaking()
+            return json.dumps({"ok": True})
         except Exception as e:
             return json.dumps({"ok": False, "error": str(e)})
 

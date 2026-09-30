@@ -621,7 +621,9 @@
             voice.dataset.len = words <= 3 ? 'short' : words > 18 ? 'long' : 'mid';
             respActions(turn, answer);
           }
-          speakOut(e.text);
+          if (!said && e.text) {
+            speakOut(e.text);
+          }
           followups(turn, e.followups || ['Tell me more', 'Do that again', 'Never mind']);
           // after turn done, begin passive watching so user can speak without clicking
           setTimeout(() => { if (!listening && !speaking) startPassiveWatch(); }, 1600);
