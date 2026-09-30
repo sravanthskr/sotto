@@ -25,6 +25,8 @@ _Goal: make it feel smarter within days, using what already exists (clipboard, f
 | 0.6 | Saved routines v0: "start my work" = chain existing tools (open apps, timer, mute) | 🟢 | tool chaining in one command | A | no new infra |
 | 0.7 | Window text reading: "read what's in this window" | 🟡 | Windows UI Automation tree read | B | foundation for Phase 3 |
 | 0.8 | Local semantic file search (MiniLM-class embeddings + small vector store) | 🟡 | ONNX embed model, sqlite-vec/FAISS | B | runs on 8 GB CPU; index-your-folders feature |
+| 0.9 | **Terminal execution** (`run_command(cmd, cwd)` → exit code + stdout + stderr) | 🟢 | subprocess capture | A | the single biggest enabler (confirmed missing in our audit); permission-gated |
+| 0.10 | **Type-text tool** (type into the focused window) | 🟢 | SendInput | B | foundational for form-filling; works where UIA can't |
 
 **After Phase 0:** it reads your clipboard, documents, and screen; saves things; runs routines.
 All local, nothing to break.
@@ -118,6 +120,28 @@ _Goal: messaging where platforms officially allow it. Honest limits everywhere e
 | 7.3 | Reliability scoreboard per capability (honest classes surfaced in UI) | 🟡 | trust feature |
 
 ---
+
+## Cross-check merge (2026-09-30, second-opinion audit from Antigravity)
+
+A second AI audited our app + researched the same space. Verified against our codebase [first-party check]:
+
+**Accurate → merged or already here:** terminal execution missing (added as 0.9 — biggest single gap);
+no type-text tool (added as 0.10); `search_web` opens the browser without reading results (already in
+Phase 1's web-reading work; note `look_up`/`read_webpage` DO read); screenshots never analyzed (0.5);
+Spotify only opens search (Phase 5 media; **VLC HTTP API added as a 🟢 local media win**); daily
+briefing shallow without email/calendar (Phase 1.8); proactive watches only disk+battery (Phase 6).
+
+**One error to correct:** "reminders lost on restart" — FALSE for current code; reminders persist
+to JSON already (verified in `reminders.py` `_load`/`_save`).
+
+**Platform table:** matches ours (Gmail/Calendar full ✓, WhatsApp skip ✓, Discord bots ok /
+selfbots never ✓, Spotify premium for playback ✓, Playwright medium/fragile ✓, pywinauto ≈ our UIA
+rung ✓). Two nuance calls we keep: **Telegram personal-account automation (Telethon/MTProto) = works
+technically but gray-area, ban risk → opt-in off-by-default, bot path preferred**; and **Playwright
+stays in Phase 4** (their ordering pulls it earlier — we sequence by reliability tier, not excitement).
+
+**Structured tool results** ({success, data, error} instead of plain strings) — good idea, already the
+spirit of our Phase 2 Verifier; adopt incrementally as tools get touched.
 
 ## Sequencing logic (why this order)
 1. Phases 0–1 give value immediately with A-class reliability and no accounts complexity beyond OAuth.
