@@ -915,9 +915,16 @@
       const g = rows.find((r) => r.startsWith('google'));
       const e = rows.find((r) => r.startsWith('email'));
       const c = rows.find((r) => r.startsWith('calendar'));
-      if ($('#accGoogle')) $('#accGoogle').textContent = g ? ('Connected — ' + g.split(': ')[1]) : 'Gmail + Calendar, full access';
-      if ($('#accEmail')) $('#accEmail').textContent = e ? ('Connected — ' + e.split(': ')[1]) : 'Gmail / Outlook — read, search, send';
-      if ($('#accIcs')) $('#accIcs').textContent = c ? 'Linked (read-only)' : 'Read-only ICS link (30-second setup)';
+      let configured = false;
+      try { configured = !!(JSON.parse((await callIf('google_setup_hint')) || '{}').client_id); } catch {}
+      if ($('#accGoogle')) {
+        if (g) $('#accGoogle').textContent = 'Signed in — ' + (g.split(': ')[1] || 'connected');
+        else if (configured) $('#accGoogle').textContent = 'Sign in to use Gmail and Calendar';
+        else $('#accGoogle').textContent = 'Not set up yet — open Advanced setup below';
+      }
+      if ($('#rowOwnerSetup')) $('#rowOwnerSetup').style.display = configured ? 'none' : 'flex';
+      if ($('#accEmail')) $('#accEmail').textContent = e ? ('Connected — ' + e.split(': ')[1]) : 'For non-Google mailboxes';
+      if ($('#accIcs')) $('#accIcs').textContent = c ? 'Linked (read-only)' : 'Read-only alternative';
     } catch {}
   }
 
@@ -1007,6 +1014,13 @@
           if (s.client_id) $('#gClientId').value = s.client_id;
         } catch {}
       })();
+    });
+    $('#btnAccAdvanced').addEventListener('click', () => {
+      const box = $('#accAdvanced');
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      $('#btnAccAdvanced').textContent = open ? 'Show' : 'Hide';
+      if (!open) refreshAccounts();
     });
     $('#btnGoogleSave').addEventListener('click', async () => {
       const cid = $('#gClientId').value.trim();

@@ -12,10 +12,22 @@ Imported at the very end of tools.py.
 
 from tools import tool
 
-_NO_EMAIL = ("No email account connected yet. Add one in Settings -> Accounts "
-             "(Gmail / Outlook app password), then try again.")
-_NO_CAL = ("No calendar linked yet. Add an ICS link in Settings -> Accounts, or connect a "
-           "Google account for full calendar control.")
+_NO_EMAIL = ("No email available yet. Sign in with Google in Settings -> Accounts, "
+             "or add an email app password under Advanced setup.")
+_NO_CAL = ("No calendar linked yet. Sign in with Google in Settings -> Accounts, "
+           "or link a read-only calendar under Advanced setup.")
+
+
+def _gmail():
+    """Gmail API when a Google account is connected (the sign-in path); else None."""
+    try:
+        import calendar_api
+        if calendar_api.google_token():
+            import gmail_api
+            return gmail_api
+    except Exception:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -41,12 +53,21 @@ def email_status():
     },
 )
 def email_summary(hours=24, unread_only=False):
-    import accounts
-    if not accounts.get_email_account():
-        return _NO_EMAIL
-    import mail
-    days = max(1, int(round(hours / 24)) if hours >= 24 else 1)
-    rows = mail.list_inbox(limit=20, unread_only=bool(unread_only), days=days)
+    g = _gmail()
+    if g:
+        q = []
+        if unread_only:
+            q.append("is:unread")
+        days = max(1, (int(hours) + 23) // 24) if hours else 1
+        q.append(f"newer_than:{days}d")
+        rows = g.list_messages(" ".join(q), limit=20)
+    else:
+        import accounts
+        if not accounts.get_email_account():
+            return _NO_EMAIL
+        import mail
+        days = max(1, int(round(hours / 24)) if hours >= 24 else 1)
+        rows = mail.list_inbox(limit=20, unread_only=bool(unread_only), days=days)
     if isinstance(rows, str):
         return rows
     if not rows:
@@ -69,11 +90,15 @@ def email_summary(hours=24, unread_only=False):
     },
 )
 def email_search(query, limit=10):
-    import accounts
-    if not accounts.get_email_account():
-        return _NO_EMAIL
-    import mail
-    rows = mail.list_inbox(limit=int(limit or 10), query=query)
+    g = _gmail()
+    if g:
+        rows = g.list_messages(query, limit=int(limit or 10))
+    else:
+        import accounts
+        if not accounts.get_email_account():
+            return _NO_EMAIL
+        import mail
+        rows = mail.list_inbox(limit=int(limit or 10), query=query)
     if isinstance(rows, str):
         return rows
     if not rows:
@@ -91,11 +116,15 @@ def email_search(query, limit=10):
     },
 )
 def email_read(uid):
-    import accounts
-    if not accounts.get_email_account():
-        return _NO_EMAIL
-    import mail
-    msg = mail.read_message(str(uid).strip("[] "))
+    g = _gmail()
+    if g:
+        msg = g.read_message(str(uid).strip("[] "))
+    else:
+        import accounts
+        if not accounts.get_email_account():
+            return _NO_EMAIL
+        import mail
+        msg = mail.read_message(str(uid).strip("[] "))
     if isinstance(msg, str):
         return msg
     return (f"From: {msg['from']}\nTo: {msg['to']}\nDate: {msg['date']}\nSubject: {msg['subject']}\n\n{msg['body']}")
@@ -136,6 +165,9 @@ def email_draft(to, subject, body):
     danger=True,
 )
 def email_send(to, subject, body):
+    g = _gmail()
+    if g:
+        return g.send(to, subject, body)
     import accounts
     if not accounts.get_email_account():
         return _NO_EMAIL
@@ -154,13 +186,16 @@ def email_send(to, subject, body):
     danger=True,
 )
 def email_send_draft(draft_id):
-    import accounts
-    if not accounts.get_email_account():
-        return _NO_EMAIL
     import mail
     d = mail.get_draft(draft_id)
     if not d:
         return f"Error: no draft with id {draft_id}."
+    g = _gmail()
+    if g:
+        return g.send(d["to"], d["subject"], d["body"])
+    import accounts
+    if not accounts.get_email_account():
+        return _NO_EMAIL
     return mail.send(d["to"], d["subject"], d["body"])
 
 

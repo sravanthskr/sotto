@@ -226,20 +226,26 @@
 
     <span class="group-label">Accounts</span>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Google account</span><span class="s-sub" id="accGoogle">Gmail + Calendar, full access</span></div>
-      <button class="btn-silent" id="btnGoogleConnect">Connect</button>
+      <div class="s-info"><span class="s-lab">Google</span><span class="s-sub" id="accGoogle">Sign in to use Gmail and Calendar</span></div>
+      <button class="btn-silent" id="btnGoogleConnect">Sign in</button>
     </div>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Google setup (owner)</span><span class="s-sub" id="accOwner">One-time: the app's own client id — users never touch this</span></div>
-      <button class="btn-silent" id="btnGoogleSetup">Set up</button>
+      <div class="s-info"><span class="s-lab">Advanced setup</span><span class="s-sub">Alternatives for other mailboxes & calendars</span></div>
+      <button class="btn-quiet" id="btnAccAdvanced">Show</button>
     </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Email</span><span class="s-sub" id="accEmail">Gmail / Outlook — read, search, send</span></div>
-      <button class="btn-silent" id="btnEmailSetup">Set up</button>
-    </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Calendar link</span><span class="s-sub" id="accIcs">Read-only ICS link (30-second setup)</span></div>
-      <button class="btn-silent" id="btnIcsSetup">Set up</button>
+    <div id="accAdvanced" style="display:none">
+      <div class="setrow" id="rowOwnerSetup">
+        <div class="s-info"><span class="s-lab">Google app setup</span><span class="s-sub" id="accOwner">One-time for the owner — hides once set</span></div>
+        <button class="btn-silent" id="btnGoogleSetup">Set up</button>
+      </div>
+      <div class="setrow">
+        <div class="s-info"><span class="s-lab">Email (app password)</span><span class="s-sub" id="accEmail">For non-Google mailboxes</span></div>
+        <button class="btn-silent" id="btnEmailSetup">Set up</button>
+      </div>
+      <div class="setrow">
+        <div class="s-info"><span class="s-lab">Calendar link</span><span class="s-sub" id="accIcs">Read-only alternative</span></div>
+        <button class="btn-silent" id="btnIcsSetup">Set up</button>
+      </div>
     </div>
 
     <span class="group-label">Computer</span>
