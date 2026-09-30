@@ -107,6 +107,18 @@ def get_oauth(provider):
     return load().get("oauth", {}).get(provider)
 
 
+def clear_oauth(provider):
+    data = load()
+    (data.get("oauth") or {}).pop(provider, None)
+    save(data)
+
+
+def clear_ics():
+    data = load()
+    data.pop("calendar_ics", None)
+    save(data)
+
+
 # ---------------- status ----------------
 def status_lines():
     data = load()

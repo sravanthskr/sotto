@@ -109,9 +109,12 @@ class Api:
         text = (text or "").strip()
         if not text:
             return
+        low = text.lower()
+        if any(m in low for m in ("<tool_call", "<function=", "<parameter=")):
+            self._turn_leak = True
+            _log("leak-guard: holding back XML tool-call text")
         if not self._turn_checked:
             self._turn_checked = True
-            low = text.lower()
             if any(m in low for m in ("the user is asking", "the user wants", "i should check",
                                       "i need to check", "let me use", "let me check what", "i can use")):
                 self._turn_leak = True
@@ -212,6 +215,12 @@ class Api:
     def _repair(self, draft):
         """A weak model leaked planning/meta text — rewrite it into a clean answer."""
         import ai_engine
+        try:
+            import re as _re
+            draft = _re.sub(r"<tool_call[\s\S]*?</tool_call>|<function=[\s\S]*?</function>",
+                            " ", draft or "").strip()
+        except Exception:
+            pass
         _log("repair: rewriting planning-leaked reply")
         self._turn_leak = False
         self._turn_checked = True
@@ -436,6 +445,18 @@ class Api:
     def accounts_status(self):
         import accounts
         return json.dumps(accounts.status_lines())
+
+    def disconnect_google(self):
+        import accounts
+        accounts.clear_oauth("google")
+        _log("disconnect_google")
+        return json.dumps(True)
+
+    def disconnect_calendar(self):
+        import accounts
+        accounts.clear_ics()
+        _log("disconnect_calendar")
+        return json.dumps(True)
 
     def set_sound(self, on):
         from config import save_setting

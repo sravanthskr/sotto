@@ -123,8 +123,26 @@ class Assistant:
         first = {"v": True}
 
         def _text_tool_call(content):
-            """Recover tool calls that free models emit as plain-text JSON."""
-            if not content or not content.startswith("{"):
+            """Recover tool calls that free models emit as plain text (JSON or XML form)."""
+            if not content:
+                return None
+            low = content.lower()
+            if "<tool_call" in low or "<function=" in low:
+                import re as _re
+                m = _re.search(r"<function=([^>\s]+)>", content)
+                if m:
+                    name = m.group(1).strip()
+                    aliases = {"email": "email_summary", "gmail": "email_summary",
+                               "mail": "email_summary", "calendar": "calendar_today"}
+                    name = aliases.get(name, name)
+                    args = {}
+                    for pm in _re.finditer(r"<parameter=([^>\s]+)>\s*(.*?)\s*</parameter>", content, _re.S):
+                        args[pm.group(1).strip()] = pm.group(2).strip()
+                    if name in tools.REGISTRY:
+                        return {"id": "textcall0", "type": "function",
+                                "function": {"name": name, "arguments": json.dumps(args)}}
+                return None
+            if not content.startswith("{"):
                 return None
             try:
                 data = json.loads(content)

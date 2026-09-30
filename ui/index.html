@@ -261,10 +261,15 @@
   </div>
 </section>
 
-<section class="sheet" id="sheetGoogleSetup" role="dialog" aria-modal="true" aria-label="Google setup (owner)">
+<section class="sheet" id="sheetGoogleSetup" role="dialog" aria-modal="true" aria-label="Google setup (owner)" data-parent="sheetSettings">
   <span class="grab"></span>
   <div class="s-head">
-    <span class="s-title">Google setup (owner)</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button class="icon-btn" data-close aria-label="Back">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg>
+      </button>
+      <span class="s-title">Google setup (owner)</span>
+    </div>
     <button class="icon-btn" data-close aria-label="Close">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
@@ -277,10 +282,15 @@
   </div>
 </section>
 
-<section class="sheet" id="sheetEmail" role="dialog" aria-modal="true" aria-label="Connect email">
+<section class="sheet" id="sheetEmail" role="dialog" aria-modal="true" aria-label="Connect email" data-parent="sheetSettings">
   <span class="grab"></span>
   <div class="s-head">
-    <span class="s-title">Connect email</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button class="icon-btn" data-close aria-label="Back">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg>
+      </button>
+      <span class="s-title">Connect email</span>
+    </div>
     <button class="icon-btn" data-close aria-label="Close">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
@@ -290,13 +300,19 @@
     <div class="typewrap"><input id="emailPass" type="password" placeholder="App password (not your main password)"></div>
     <p style="font-size:12px;color:var(--ink-3)">Gmail: Account → Security → 2-Step Verification → App passwords, then paste the 16-character password. Outlook: use an app password if 2-step verification is on.</p>
     <button class="btn-silent" id="btnEmailConnect" style="width:100%">Connect</button>
+    <button class="btn-quiet" id="btnEmailDisconnect" style="width:100%">Disconnect email</button>
   </div>
 </section>
 
-<section class="sheet" id="sheetIcs" role="dialog" aria-modal="true" aria-label="Link calendar">
+<section class="sheet" id="sheetIcs" role="dialog" aria-modal="true" aria-label="Link calendar" data-parent="sheetSettings">
   <span class="grab"></span>
   <div class="s-head">
-    <span class="s-title">Link calendar</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button class="icon-btn" data-close aria-label="Back">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg>
+      </button>
+      <span class="s-title">Link calendar</span>
+    </div>
     <button class="icon-btn" data-close aria-label="Close">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
@@ -305,6 +321,7 @@
     <div class="typewrap"><input id="icsUrl" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"></div>
     <p style="font-size:12px;color:var(--ink-3)">Google Calendar → Settings → your calendar → “Secret address in iCal format”. Read-only: the assistant can see events but can't change them.</p>
     <button class="btn-silent" id="btnIcsConnect" style="width:100%">Link calendar</button>
+    <button class="btn-quiet" id="btnIcsDisconnect" style="width:100%">Remove calendar link</button>
   </div>
 </section>
 

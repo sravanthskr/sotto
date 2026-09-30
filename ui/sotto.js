@@ -604,6 +604,7 @@
         else if (e.type === 'done') {
           callIf('log', 'done');
           retries = 0;
+          turn.querySelector('.thinking')?.remove();
           if (!said && e.text) { setState('responding'); streamWord(voice, e.text); }
           const answer = e.full || (voice.textContent || '').trim();
           if (answer) {
@@ -617,6 +618,7 @@
         else if (e.type === 'error') {
           callIf('log', 'error event: ' + (e.text || ''));
           addNotice(turn, e.text);
+          turn.querySelector('.thinking')?.remove();
           setState('idle');
           if (retries < 2) {
             retries += 1;
@@ -923,6 +925,11 @@
         else $('#accGoogle').textContent = 'Not set up yet — open Advanced setup below';
       }
       if ($('#rowOwnerSetup')) $('#rowOwnerSetup').style.display = configured ? 'none' : 'flex';
+      const gbtn = $('#btnGoogleConnect');
+      if (gbtn && !gbtn.dataset.confirm) {
+        if (g) { gbtn.dataset.state = 'on'; gbtn.textContent = 'Disconnect'; }
+        else { gbtn.dataset.state = 'off'; gbtn.textContent = 'Sign in'; }
+      }
       if ($('#accEmail')) $('#accEmail').textContent = e ? ('Connected — ' + e.split(': ')[1]) : 'For non-Google mailboxes';
       if ($('#accIcs')) $('#accIcs').textContent = c ? 'Linked (read-only)' : 'Read-only alternative';
     } catch {}
@@ -991,7 +998,12 @@
     $('#btnTheme').addEventListener('click', () => { applyThemePref(resolveTheme(themePref) === 'dark' ? 'light' : 'dark', true); });
 
     $('#scrim').addEventListener('click', closeSheets);
-    $$('[data-close]').forEach(b => b.addEventListener('click', closeSheets));
+    $$('[data-close]').forEach(b => b.addEventListener('click', () => {
+      const sheet = b.closest('.sheet');
+      const parent = sheet && sheet.dataset.parent;
+      closeSheets();
+      if (parent) openSheet(parent);
+    }));
     $('#hSearch').addEventListener('input', loadHistory);
     $$('#memSeg button').forEach(b => b.addEventListener('click', () => { memSeg = b.dataset.mem; loadMemory(); }));
     $('#btnNewChat').addEventListener('click', async () => {
@@ -1033,6 +1045,20 @@
     });
     $('#btnIcsSetup').addEventListener('click', () => openSheet('sheetIcs'));
     $('#btnGoogleConnect').addEventListener('click', async () => {
+      const gbtn = $('#btnGoogleConnect');
+      if (gbtn.dataset.state === 'on') {
+        if (gbtn.dataset.confirm === '1') {
+          gbtn.dataset.confirm = '';
+          await callIf('disconnect_google');
+          toast('Google disconnected.', 'ACCOUNTS', 2800);
+          refreshAccounts();
+          return;
+        }
+        gbtn.dataset.confirm = '1';
+        gbtn.textContent = 'Confirm?';
+        setTimeout(() => { gbtn.dataset.confirm = ''; refreshAccounts(); }, 3000);
+        return;
+      }
       const msg = JSON.parse((await callIf('google_connect')) || '""');
       toast(typeof msg === 'string' && msg ? msg : 'Browser opened — finish sign-in there.', 'ACCOUNTS', 4200);
       refreshAccounts();
@@ -1048,6 +1074,16 @@
       btn.disabled = false; btn.textContent = 'Connect';
       $('#emailPass').value = '';
       toast(typeof msg === 'string' && msg ? msg : 'Done.', 'ACCOUNTS', 4200);
+      refreshAccounts();
+    });
+    $('#btnEmailDisconnect').addEventListener('click', async () => {
+      await callIf('disconnect_email');
+      toast('Email disconnected.', 'ACCOUNTS', 2800);
+      refreshAccounts();
+    });
+    $('#btnIcsDisconnect').addEventListener('click', async () => {
+      await callIf('disconnect_calendar');
+      toast('Calendar link removed.', 'ACCOUNTS', 2800);
       refreshAccounts();
     });
     $('#btnIcsConnect').addEventListener('click', async () => {
