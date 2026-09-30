@@ -135,6 +135,13 @@ class Api:
             rows = _status_rows(str(result))
             if rows:
                 event["rows"] = rows
+        elif name in ("set_volume", "get_volume"):
+            m = re.search(r"(\d+)", str(result))
+            level = int(m.group(1)) if m else (args.get("percent") if isinstance(args, dict) else 50)
+            event["payload"] = {"level": level, "muted": "mute" in str(result).lower()}
+        elif name in ("control_media", "media_control"):
+            act = args.get("action", "") if isinstance(args, dict) else ""
+            event["payload"] = {"title": f"Media ({act or 'control'})", "artist": str(result), "playing": True, "pos": 0, "dur": 0}
         self._push(event)
 
     def _on_learned(self, facts):
@@ -384,6 +391,20 @@ class Api:
     def set_wake(self, on):
         from config import save_setting
         return json.dumps(bool(save_setting("wake_word", bool(on))))
+
+    def set_volume(self, percent):
+        try:
+            res = tools.set_volume(int(percent))
+            return json.dumps({"ok": True, "result": res})
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)})
+
+    def media_control(self, action):
+        try:
+            res = tools.control_media(str(action))
+            return json.dumps({"ok": True, "result": res})
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)})
 
     def say_slow(self, text):
         try:
