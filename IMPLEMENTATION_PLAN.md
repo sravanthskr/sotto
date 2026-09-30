@@ -44,6 +44,14 @@ All local, nothing to break.
 ## PHASE 1 — Email & Calendar (🟡 Medium · official APIs · THE productivity leap)
 _Goal: the assistant starts handling real work. Personal accounts only — no business setup needed._
 
+**STATUS (2026-09-30): ✅ ENGINE BUILT & TESTED (v49, 88 tools).**
+Live now: `email_status/summary/search/read/draft/send/send_draft` (send = confirm-gated),
+`calendar_connect_ics/today/week/add`, `connect_google`, `account_status`;
+Settings → Accounts UI (Email app-password sheet + Calendar ICS sheet + Google connect).
+Verified: DPAPI round-trip, ICS today+week w/ weekly recurrence, graceful failures.
+User connects via: Gmail app password (3 min) and/or Google Calendar ICS link (30 s) — see ACCOUNTS_SETUP.md.
+Dormant until one-time owner setup: full Google OAuth (gmail API + calendar create/move).
+
 | # | Feature | Difficulty | Mechanism | Smooth? | Notes |
 |---|---|---|---|---|---|
 | 1.1 | Connect Google/Microsoft account (OAuth desktop flow, loopback) | 🟡 | official OAuth | A | one-time setup screen |
