@@ -36,10 +36,8 @@ To unlock **Gmail API + Calendar create/move** without app passwords, register O
 1. **Google Cloud Console** → new project → **APIs & Services → Enable APIs**: Gmail API + Google Calendar API
 2. **OAuth consent screen** → External → add yourself as a test user
 3. **Credentials → Create credentials → OAuth client ID → Desktop app** → copy **Client ID + Client secret**
-4. Put them in `%LOCALAPPDATA%\RealAssistant\settings.json`:
-   ```json
-   { "google_client_id": "…apps.googleusercontent.com", "google_client_secret": "…" }
-   ```
+4. **In the app: Settings → Accounts → “Google setup (owner)”** → paste both → Save.
+   *(No file editing anywhere — for shipping, the client id travels inside the app so end users never see this.)*
 5. In the app: **Accounts → Google → Connect** → browser sign-in once → done.
    From then on: calendar events can be **created/moved** (`calendar_add`), and Google's official
    APIs handle mail with no app passwords.
