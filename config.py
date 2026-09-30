@@ -1,4 +1,4 @@
-﻿"""
+"""
 config.py - settings, paths, and the assistant's personality.
 
 Everything you might want to tweak lives here (or in settings.json - see below).
@@ -176,6 +176,7 @@ How you act:
   outcome in one natural line. NEVER mention tools, function calls, JSON, or schemas.
 - When a question needs current facts, use look_up and answer in your own words. Only open a
   browser tab when the user actually asked to see the page.
+- When asked to play a song, video, music, or search YouTube, use play_media or search_web with site="youtube" directly - never use generic Google search when a specific platform like YouTube or Spotify is mentioned.
 - For anything destructive (shutting down, restarting, deleting, moving files) a confirmation
   box will appear on screen - that's expected. Say briefly what you're about to do.
 - Never narrate your thinking or plans. Never write "The user is asking", "I should",

@@ -338,16 +338,67 @@ def open_website(url):
 
 @tool(
     name="search_web",
-    description="Search the web for a query by opening the search in the browser.",
+    description="Search the web or specific services (e.g. YouTube, Wikipedia, Reddit, Amazon, GitHub).",
     parameters={
         "type": "object",
-        "properties": {"query": {"type": "string", "description": "What to search for."}},
+        "properties": {
+            "query": {"type": "string", "description": "What to search for."},
+            "site": {"type": "string", "description": "Optional site: 'youtube', 'google', 'wiki', 'reddit', 'amazon', 'github'."}
+        },
         "required": ["query"],
     },
 )
-def search_web(query):
-    webbrowser.open("https://www.google.com/search?q=" + quote_plus(query))
-    return f"Searched for '{query}'."
+def search_web(query, site=""):
+    q = (query or "").strip()
+    s = (site or "").lower().strip()
+    if s == "youtube" or "youtube" in q.lower():
+        clean_q = re.sub(r"(?i)\b(on\s+)?youtube\b", "", q).strip()
+        url = "https://www.youtube.com/results?search_query=" + quote_plus(clean_q or q)
+    elif s in ("wiki", "wikipedia"):
+        url = "https://en.wikipedia.org/wiki/Special:Search?search=" + quote_plus(q)
+    elif s == "reddit":
+        url = "https://www.reddit.com/search/?q=" + quote_plus(q)
+    elif s == "amazon":
+        url = "https://www.amazon.com/s?k=" + quote_plus(q)
+    elif s == "github":
+        url = "https://github.com/search?q=" + quote_plus(q)
+    else:
+        url = "https://www.google.com/search?q=" + quote_plus(q)
+    
+    webbrowser.open(url)
+    return f"Searched for '{q}'."
+
+
+@tool(
+    name="play_media",
+    description="Play a song, video, artist, or music track directly on YouTube or Spotify.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Song name, artist, video title, or search term."},
+            "service": {"type": "string", "description": "Platform to use: 'youtube' (default) or 'spotify'."}
+        },
+        "required": ["query"],
+    },
+)
+def play_media(query, service="youtube"):
+    q = (query or "").strip()
+    srv = (service or "youtube").lower().strip()
+    clean_q = re.sub(r"(?i)\b(play|on\s+youtube|on\s+spotify|youtube|spotify)\b", "", q).strip()
+    target_q = clean_q or q
+
+    if srv == "spotify":
+        # Check if spotify is running or installed
+        target = resolve_app("spotify")
+        if target:
+            webbrowser.open("https://open.spotify.com/search/" + quote_plus(target_q))
+        else:
+            webbrowser.open("https://open.spotify.com/search/" + quote_plus(target_q))
+        return f"Playing '{target_q}' on Spotify."
+    else:
+        url = "https://www.youtube.com/results?search_query=" + quote_plus(target_q)
+        webbrowser.open(url)
+        return f"Playing '{target_q}' on YouTube."
 
 
 @tool(
