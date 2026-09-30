@@ -230,6 +230,10 @@
       <button class="btn-silent" id="btnGoogleConnect">Connect</button>
     </div>
     <div class="setrow">
+      <div class="s-info"><span class="s-lab">Google setup (owner)</span><span class="s-sub" id="accOwner">One-time: the app's own client id — users never touch this</span></div>
+      <button class="btn-silent" id="btnGoogleSetup">Set up</button>
+    </div>
+    <div class="setrow">
       <div class="s-info"><span class="s-lab">Email</span><span class="s-sub" id="accEmail">Gmail / Outlook — read, search, send</span></div>
       <button class="btn-silent" id="btnEmailSetup">Set up</button>
     </div>
@@ -248,6 +252,22 @@
     <div class="hlist" id="providerList"></div>
     <div class="hempty" id="providerEmpty" style="display:none"></div>
     <p class="n-mono" id="aboutLine" style="font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.06em;text-align:center">Sotto</p>
+  </div>
+</section>
+
+<section class="sheet" id="sheetGoogleSetup" role="dialog" aria-modal="true" aria-label="Google setup (owner)">
+  <span class="grab"></span>
+  <div class="s-head">
+    <span class="s-title">Google setup (owner)</span>
+    <button class="icon-btn" data-close aria-label="Close">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="s-body">
+    <p style="font-size:12px;color:var(--ink-3)">One-time, by the app owner only: paste the OAuth client (Desktop app) from the Google Cloud console. This becomes the app's identity — every user just clicks Connect and signs in. End users never see this screen.</p>
+    <div class="typewrap"><input id="gClientId" placeholder="…apps.googleusercontent.com" autocomplete="off"></div>
+    <div class="typewrap"><input id="gClientSecret" type="password" placeholder="Client secret"></div>
+    <button class="btn-silent" id="btnGoogleSave" style="width:100%">Save</button>
   </div>
 </section>
 

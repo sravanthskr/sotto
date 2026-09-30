@@ -409,10 +409,29 @@ class Api:
         import calendar_api
         import threading
         if not calendar_api.google_configured():
-            return json.dumps("Google needs a one-time client id/secret in settings - see ACCOUNTS_SETUP.md. "
-                              "Quick email instead: use Email (app password).")
+            return json.dumps("Google hasn't been set up yet - open 'Google setup (owner)' in Settings -> Accounts first.")
         threading.Thread(target=calendar_api.start_google_oauth, daemon=True).start()
         return json.dumps("Browser opened - finish the Google sign-in there.")
+
+    def set_google_credentials(self, client_id, client_secret):
+        from config import save_setting
+        cid = str(client_id or "").strip()
+        sec = str(client_secret or "").strip()
+        if not cid or not sec:
+            return json.dumps("Error: paste both the client id and the client secret.")
+        save_setting("google_client_id", cid)
+        save_setting("google_client_secret", sec)
+        _log("set_google_credentials updated (values intentionally not logged)")
+        return json.dumps("Saved. Now click Connect on the Google account row and sign in once.")
+
+    def google_setup_hint(self):
+        try:
+            from config import load_settings
+            s = load_settings() or {}
+            cid = str(s.get("google_client_id") or "")
+            return json.dumps({"client_id": cid, "has_secret": bool(s.get("google_client_secret"))})
+        except Exception:
+            return json.dumps({})
 
     def accounts_status(self):
         import accounts

@@ -999,6 +999,24 @@
     $('#voiceSelect').addEventListener('change', (e) => callIf('set_voice', e.target.value));
     $('#btnScan').addEventListener('click', () => runAppScan());
     $('#btnEmailSetup').addEventListener('click', () => openSheet('sheetEmail'));
+    $('#btnGoogleSetup').addEventListener('click', () => {
+      openSheet('sheetGoogleSetup');
+      (async () => {
+        try {
+          const s = JSON.parse((await callIf('google_setup_hint')) || '{}');
+          if (s.client_id) $('#gClientId').value = s.client_id;
+        } catch {}
+      })();
+    });
+    $('#btnGoogleSave').addEventListener('click', async () => {
+      const cid = $('#gClientId').value.trim();
+      const sec = $('#gClientSecret').value.trim();
+      let msg = '';
+      try { msg = JSON.parse((await callIf('set_google_credentials', cid, sec)) || '""'); } catch {}
+      toast(typeof msg === 'string' && msg ? msg : 'Saved.', 'ACCOUNTS', 4200);
+      if (typeof msg === 'string' && msg.startsWith('Saved')) { $('#gClientSecret').value = ''; closeSheets(); }
+      refreshAccounts();
+    });
     $('#btnIcsSetup').addEventListener('click', () => openSheet('sheetIcs'));
     $('#btnGoogleConnect').addEventListener('click', async () => {
       const msg = JSON.parse((await callIf('google_connect')) || '""');
