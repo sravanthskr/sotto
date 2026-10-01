@@ -6,8 +6,6 @@ Sotto is a voice-first personal operator for Windows. You say what you want in y
 
 It is built for one person on one machine: local-first, no GPU required, and your keys stay encrypted on your PC.
 
-*Development note: this project began under the working name "RealAssistant". The repository is `voiceStra`; the product is **Sotto**.*
-
 > **Visuals coming soon.** Screenshots of the current build and a short demo video are being prepared — they will be added here.
 
 ## Why This Exists
@@ -24,7 +22,7 @@ Existing assistants answer questions. Copilots suggest while you drive. Sotto is
 ## What It Does
 
 ### Voice interaction
-Hold **Space** (or press the mic) and speak naturally. Sotto replies out loud, sentence by sentence, so it starts answering quickly. "Repeat that", "say it slower", and "stop" work at any time — it stops mid-sentence. Choose any installed voice; advanced users can train a custom voice from their own samples.
+Hold **Space** (or press the mic) and speak naturally. Sotto replies out loud, sentence by sentence, so it starts answering quickly. "Repeat that", "say it slower", and "stop" work at any time — it stops mid-sentence. Choose any installed voice, or a custom voice trained from your own samples.
 
 ### Email, handled
 With your own Google account connected, Sotto reads, searches, and summarizes mail; writes replies in your voice; and sends only after you confirm. Draft → confirm → send.
@@ -64,7 +62,7 @@ You:    Send it.
 Sotto:  Sent.
 ```
 
-Where it can check the result — like a sent email — it checks before saying "done"; when it can't, it says that too. (Full step-by-step verification across every action is in progress; see Current Status.)
+Where it can check the result — like a sent email — it checks before saying "done". When it can't, it says that too.
 
 ### Screenshots & Demo
 
@@ -97,13 +95,13 @@ The AI reasoning uses a provider you bring a key for (OpenRouter, Groq, Google G
 - A microphone and speakers
 - An API key for an AI provider — free tiers work (see Configuration)
 - Internet connection for the AI reasoning
-- No GPU required (the optional custom voice is CPU-only)
+- No GPU required
 
 ### Installation
 
 ```powershell
-git clone https://github.com/srav-ku/voiceStra.git
-cd voiceStra
+git clone https://github.com/sravanthskr/sotto.git
+cd sotto
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -120,10 +118,10 @@ copy .env.example .env
 ```
 
 ```ini
-OPENROUTER_API_KEY=your-key-here
-GROQ_API_KEY=your-key-here
-GEMINI_API_KEY=your-key-here
-GITHUB_TOKEN=your-token-here
+OPENROUTER_API_KEY=***
+GROQ_API_KEY=***
+GEMINI_API_KEY=***
+GITHUB_TOKEN=***
 ```
 
 For connecting Google step by step, see [`ACCOUNTS_SETUP.md`](ACCOUNTS_SETUP.md).
@@ -153,50 +151,35 @@ No wizard — one screen. Allow microphone access when Windows asks (or run `run
 - **Routines** — "Save this as my Monday routine." · "Run my Monday routine."
 - **Voice** — "Repeat that." · "Say it slower." · "Stop."
 
-## Current Status
-
-*Honest snapshot: if it's listed as working, it has been exercised on a real machine.*
-
-**Working today**
-- Full voice loop: hold-to-talk, offline speech recognition, spoken replies, stop / repeat / slower, voice selection
-- Custom voice (experimental, optional): trained from your own samples, running through a local pipeline — slower than built-in voices
-- Email via your own Google account: summary, search, read, draft, send (with confirmation)
-- Calendar: today & week, add events (Google or `.ics`)
-- Files: find by name or content, read PDFs, organise Downloads (+ undo), move/copy/rename, safe deletes
-- Screen reading and window text (on request)
-- Apps & system: open/close, windows, volume, brightness, media, screenshots, clipboard, power actions (with confirmation)
-- Memory, notes, reminders, routines, daily briefing, weather
-- Interface: light (default) and dark; panels for memory, history, and settings
-
-**In progress**
-- The agent kernel: multi-step jobs with planning, verification, and permission tiers
-- Calendar: moving and cancelling events; finding free time
-- First-run polish and an installer
-
-**Planned**
-- "Prepare me for X" workflows (for example, interview prep) end-to-end
-- More Google services (Drive, Tasks) and a wider set of app integrations
-- Opt-in proactive briefs and monitoring; wake-word support
-
-## Roadmap
+## Roadmap — where Sotto is headed
 
 ```text
 Voice control        →  it does what you say
-Computer tasks       →  it handles errands across your apps     ← now
-Multi-step jobs      →  it completes goals, with a check
+Computer tasks       →  it handles errands across your apps     ← today
+Multi-step jobs      →  it completes whole goals, with a check
 Prepared work        →  it gets things ready before you ask
 ```
 
-The larger plan lives in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+Sotto grows in one direction: **a fully voice-first computer — no hands required.**
+
+- **Hands-free everything.** Every task that still needs a click becomes a sentence; the aim is complete control of the PC by voice alone.
+- **Whole jobs, not single steps.** "Prepare me for X" goals — Sotto plans the steps, does them, and reports back.
+- **More of your world, connected.** Messaging, Drive, Tasks, more calendars and mailboxes.
+- **Prepared and proactive.** Briefings, reminders, and quiet watchers that surface what matters before you ask.
+- **Everywhere you are.** Beyond Windows in time, with installs that take a minute.
+- **Better voices.** More built-in voices, and faster, richer custom voices.
+
+Sotto ships continuously — when a capability lands, it lands here first. What's new is recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Documentation
 
 | Document | What's inside |
 |---|---|
-| [`WHAT_SOTTO_DOES_TODAY.md`](WHAT_SOTTO_DOES_TODAY.md) | Plain-language sheet of everything that works right now |
+| [`WHAT_SOTTO_DOES_TODAY.md`](WHAT_SOTTO_DOES_TODAY.md) | Plain-language sheet of everything Sotto does |
 | [`FEATURES.md`](FEATURES.md) | Full feature inventory |
+| [`CHANGELOG.md`](CHANGELOG.md) | What's new, release by release |
 | [`V1_PRODUCT_PLAN.md`](V1_PRODUCT_PLAN.md) | Product plan and test checklist |
-| [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | Engineering roadmap, phased |
+| [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | Internal engineering roadmap |
 | [`ACCOUNTS_SETUP.md`](ACCOUNTS_SETUP.md) | Connecting Google, email, and calendar |
 | [`VOICE_GUIDE.md`](VOICE_GUIDE.md) | Voices and the custom voice pipeline |
 | [`TESTING.md`](TESTING.md) | How to test the assistant |
@@ -205,16 +188,12 @@ The larger plan lives in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 | [`HANDOFF.md`](HANDOFF.md) | Maintainer notes: architecture, files, gotchas |
 | [`DOCUMENTATION.md`](DOCUMENTATION.md) | Where documentation lives and how it's maintained |
 
-## Limitations
+## Good to know
 
-- **Windows only** (10/11, 64-bit). No macOS or mobile.
-- **Bring your own AI key.** Free provider tiers work but can be slow or flaky; paid keys are steadier.
-- **Email and calendar need your Google setup** (or an `.ics` feed). Outlook IMAP with app passwords is not supported — Microsoft disabled basic auth; a Graph integration is future work.
-- **No GPU:** built-in voices are instant, but the optional custom voice runs on CPU and is slow — seconds per sentence, about a minute for a long paragraph.
-- **Multi-step goals are not here yet.** "Get me ready for tomorrow's interview" as a single ask is the next milestone (the agent kernel), not a current claim.
-- **Screenshots and docs can lag the newest UI** occasionally; core flows are kept current.
-- **Single user, single machine.** No accounts, no sync.
-- Early software: expect rough edges, and no installer yet.
+- Sotto is for **Windows** today (10/11, 64-bit).
+- It runs on your PC: the only external service is the AI brain you bring a key for — free provider tiers work.
+- Built-in voices are instant; the optional custom voice runs locally on your CPU and takes a little longer.
+- Email and calendar connect through your own Google sign-in — optional, and there when you want them.
 
 ## Privacy & Permissions
 
@@ -228,17 +207,17 @@ The larger plan lives in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 
 ## Contributing
 
-An early, single-maintainer project. Found a bug or have a suggestion? Open a GitHub issue with what you tried and what happened. Keep pull requests small and focused; run `run.bat check` before submitting. For anything larger, please open an issue first.
+If you find a bug or have a suggestion, open a GitHub issue with what you tried and what happened. Keep pull requests small and focused; run `run.bat check` before submitting. For anything larger, please open an issue first.
 
 ## Acknowledgements
 
 - **UI & app shell:** [pywebview](https://pywebview.flowrl.com/) (WebView2); PySide6 for the earlier Qt build
 - **Speech recognition:** [Vosk](https://alphacephei.com/vosk/) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — both run locally
-- **Speech output:** Windows SAPI voices; the custom-voice pipeline builds on the RVC community's work (via Applio), adapted to run without the fairseq dependency
+- **Speech output:** Windows SAPI voices; the custom-voice pipeline builds on the RVC community's work (via Applio)
 - **AI providers:** OpenRouter, Groq, Google Gemini, and GitHub Models — bring your own key
 - **Google:** Gmail and Calendar APIs, with your own sign-in
 - **Foundations:** numpy, sounddevice, pypdf, Pillow, psutil, pycaw, ddgs, python-dotenv
 
 ## License
 
-No license has been chosen for this project yet — all rights reserved by default. A license will be added before any public release.
+© 2026 sravanthskr. All rights reserved.

@@ -8,7 +8,8 @@ All documents live at the repository root for now (the project is young; keeping
 
 | Document | Purpose |
 |---|---|
-| `README.md` | Product overview, quick start, status. The entry point. |
+| `README.md` | Product overview, quick start, roadmap. The entry point. |
+| `CHANGELOG.md` | What's new, release by release. |
 | `WHAT_SOTTO_DOES_TODAY.md` | Plain-language sheet of what works today. |
 | `FEATURES.md` | Full feature inventory (grouped, deduped). |
 | `V1_PRODUCT_PLAN.md` | Product plan and test checklist. |
@@ -47,7 +48,7 @@ Only create files that are actually needed. A small project with twelve tight do
 2. **One fact, one home.** If it's explained in a detail document, the README summarizes in one line and links — it does not duplicate.
 3. **Status sections stay honest.** Whenever a feature moves (working → in progress → planned, or the reverse), update it in the same change that moves the code. `WHAT_SOTTO_DOES_TODAY.md` and the README's Current Status must agree.
 4. **Screenshots are documentation.** They live in `_shots/`. When the UI changes meaningfully, replace the outdated ones and keep only the strongest examples in the README.
-5. **Changes between versions** go in `CHANGELOG.md` (create it at the first tagged release) — never in the README.
+5. **Changes between versions** go in `CHANGELOG.md` — never in the README.
 6. **Design debates, experiments, and internal TODOs** stay out of the README; they belong in issues or working notes.
 7. **No secrets, tokens, or personal data** in any document or screenshot.
 8. **New features:** decide first whether the README even needs to change (most features only touch `FEATURES.md`). If the product story changed, update the README's story sections — don't append a new section for every feature.

@@ -1,21 +1,28 @@
+# Python
 __pycache__/
 *.py[cod]
-.env
-.idea/
 .venv/
 venv/
 *.tmp
+
+# Secrets
+.env
+
+# Editors & builds
+.idea/
 build/
 dist/
 *.spec
-ui/_demo*.html
+
+# Internal / scratch (not part of the product)
 _shots/
+ui/_demo*.html
 ui/ui_app.py
 _rvc_*
 _wtest*
-_shots/
 _p0_*
-_p1_test*
-_p1b_test*
-_p1c_test*
-_p1d_test*
+_p1*_test*
+_pm_test.py
+_bench*
+_scar*
+preview_aura.png
