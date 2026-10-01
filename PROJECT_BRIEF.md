@@ -130,5 +130,5 @@ The engine is **UI-agnostic**: any front-end drives the same `Assistant` object 
 
 ## 11. Repo
 
-- `https://github.com/srav-ku/voiceStra` (current: v32, commit `f76d541`)
+- `https://github.com/sravanthskr/sotto` (current: v32, commit `f76d541`)
 - Docs: `README.md` (setup), `TESTING.md`, `VOICE_TEST.md`, `VOICE_GUIDE.md` (custom voice)

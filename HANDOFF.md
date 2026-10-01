@@ -3,7 +3,7 @@
 _Everything about this project: what it is, how every piece works, how to rebuild it from nothing,
 what was already fixed and why, and what the next person/AI must not break._
 
-**Repo:** https://github.com/srav-ku/voiceStra (local folder: `C:\Users\srava\Desktop\RealAssistant`)
+**Repo:** https://github.com/sravanthskr/sotto (local folder: `C:\Users\srava\Desktop\RealAssistant`)
 **Git state:** all work committed locally up to `78f17a5`. **Push is blocked** — the GitHub token in
 `.env` was rotated and currently returns 403; add a working token to push.
 
