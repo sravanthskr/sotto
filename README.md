@@ -1,335 +1,244 @@
-# voiceStra / RealAssistant
+# Sotto
 
-A local-first desktop assistant that runs on your PC and uses a cloud LLM (Groq) as its
-brain. It is built to feel like a real person sitting next to you - casual, short, no
-"as an AI" nonsense - and to actually *do* things on your computer, not just chat.
+> **Consider it done.**
 
-> Phase 1 (now): make the **text brain** genuinely human and reliable.
-> Phase 2 (later): add voice (local speech-to-text + custom local text-to-speech).
-> Phase 3 (later): build the UI around a brain that already works.
+Sotto is a voice-first personal operator for Windows. You say what you want in your own words — and Sotto does the work inside your real email, calendar, files, and apps, then tells you what actually happened. It listens when you hold a key, speaks back in a voice you choose, asks before anything consequential, and never pretends something worked when it didn't.
 
-## How it works
+It is built for one person on one machine: local-first, no GPU required, and your keys stay encrypted on your PC.
 
+*Development note: this project began under the working name "RealAssistant". The repository is `voiceStra`; the product is **Sotto**.*
+
+> **Visuals coming soon.** Screenshots of the current build and a short demo video are being prepared — they will be added here.
+
+## Why This Exists
+
+Using a computer still means doing the work yourself: opening apps, hunting through menus, copying information between windows, repeating the same routine next week, and re-explaining context every tool forgot.
+
+Existing assistants answer questions. Copilots suggest while you drive. Sotto is built to hand the *doing* over — one sentence in, real work out, honestly reported. In practice that means:
+
+- You ask what needs you in your mail — in one sentence, without opening it.
+- You add to your calendar by talking, not by clicking through dialogs.
+- You find and read documents by describing them.
+- You set up repeated errands once as routines, then run them by name.
+
+## What It Does
+
+### Voice interaction
+Hold **Space** (or press the mic) and speak naturally. Sotto replies out loud, sentence by sentence, so it starts answering quickly. "Repeat that", "say it slower", and "stop" work at any time — it stops mid-sentence. Choose any installed voice; advanced users can train a custom voice from their own samples.
+
+### Email, handled
+With your own Google account connected, Sotto reads, searches, and summarizes mail; writes replies in your voice; and sends only after you confirm. Draft → confirm → send.
+
+### Your calendar
+Reads today and the week ahead; adds events — from Google Calendar or an `.ics` feed.
+
+### Files & documents
+Finds files by name or by content; reads PDFs and documents; tidies the Downloads folder (with undo); moves, copies, and renames; deletes go to the Recycle Bin.
+
+### What's on your screen
+On request, it reads what's on your screen or in a window — errors, pages, forms — and helps with what it sees.
+
+### Apps & system
+Opens and closes apps; controls windows; sets volume and brightness; handles media playback; takes screenshots; reads and writes the clipboard; locks, sleeps, restarts, or shuts down — with a confirmation for the big ones.
+
+### Memory, notes, reminders
+Sotto remembers durable facts and preferences — visible, editable, and forgettable on request. It keeps quick notes, and sets reminders with natural timing ("remind me at 4").
+
+### Routines & the daily briefing
+Save a sequence of actions once and re-run it by name. Ask for a short spoken briefing of your day, or the weather.
+
+### Honest by design
+Before consequential actions it asks one clear question. It keeps a local record of what it did (you can ask to see it). When it can't be sure something worked, it says so instead of guessing.
+
+## See It In Action
+
+A typical exchange, up to the confirmation step:
+
+```text
+You:    Anything urgent in my email?
+Sotto:  Three unread. One needs a reply today — the invoice from Rahul,
+        he wants a yes/no by noon.
+You:    Reply yes, that it's approved, and ask him to confirm by 4.
+Sotto:  Draft: "Hi Rahul — yes, approved. Please confirm by 4." Send it?
+You:    Send it.
+Sotto:  Sent.
 ```
-You type  ->  main.py builds context (persona + memory + recent turns)
-          ->  ai_engine.py asks Groq (the brain)
-          ->  the brain may ask for a tool (JSON)
-          ->  tools.py runs it LOCALLY, returns a short result
-          ->  the brain says one natural line back to you
+
+Where it can check the result — like a sent email — it checks before saying "done"; when it can't, it says that too. (Full step-by-step verification across every action is in progress; see Current Status.)
+
+### Screenshots & Demo
+
+*Screenshots of the main screen, memory, settings, and history — plus a short recorded demo (ask → confirm → done) — are being prepared and will be added here soon.*
+
+## How It Works
+
+```text
+You hold Space and speak
+        ↓
+Speech recognition runs on your PC (offline)
+        ↓
+Sotto works out what you're asking
+        ↓
+It runs the right capability locally
+        ↓
+It checks the result where it can
+        ↓
+It replies out loud — in your chosen voice
 ```
 
-The cloud model **never** touches your filesystem or terminal directly. It can only request
-one of the named tools in `tools.py` with JSON arguments. Everything else stays on your PC:
-your API key, your memory file, your file paths.
+The AI reasoning uses a provider you bring a key for (OpenRouter, Groq, Google Gemini, or GitHub Models — free tiers exist). Nothing but the text of your request goes to that provider: your files, audio, and credentials stay on your machine.
 
-## Files
+## Getting Started
 
-| File | What it does |
-| --- | --- |
-| `config.py` | Model name, memory settings, and the assistant's **persona**. Tune the personality here. |
-| `ai_engine.py` | Groq client, retries, message helpers, summarisation. |
-| `tools.py` | The **hands**: tool registry + app discovery + every capability. |
-| `core.py` | The **engine** (`Assistant`) - any front-end drives this. |
-| `memory.py` | Persistent local memory (`%LOCALAPPDATA%\RealAssistant\memory.json`). |
-| `reminders.py` | Timers/reminders with a background thread; survive restarts. |
-| `notes.py` | Quick local notes (`notes.json`). |
-| `winctl.py` | Window control (list / focus / minimise / maximise) via Win32. |
-| `fileops.py` | File organising for Downloads, with undo. |
-| `sysactions.py` | Power (shutdown/restart/sleep/lock) and safe Recycle-Bin deletes. |
-| `confirm.py` | Native Windows confirmation dialog for risky actions. |
-| `learn.py` | Quietly mines the chat for durable facts to remember. |
-| `audit.py` | Local log of every action taken. |
-| `display.py` | Screen brightness + exact master volume. |
-| `briefing.py` | Weather + daily briefing + reading a web page's text. |
-| `browser.py` | Chrome profile listing + opening a specific account. |
-| `sysinfo.py` | System awareness: CPU/RAM/disk/battery, processes, network. |
-| `proactive.py` | Conservative background watcher that speaks up when it matters. |
-| `main.py` | The console front-end (typing + printing). |
-| `voice_ui.py` | Earlier Flet attempt (kept for reference, superseded by `app_qt.py`). |
-| `app_qt.py` | **The voice-first app** (PySide6/Qt orb + waveform visualiser). |
-| `audio.py` | Live mic level + recording for the visualiser. |
-| `ui_app.py` | Chat-style window launcher (pywebview). |
-| `ui/` | The desktop UI - HTML/CSS/JS, Apple-style. |
-| `ui_bridge.py` | The JS <-> Python bridge for the desktop UI. |
-| `sessions.py` | Saved chats for the desktop UI. |
-| `voice.py` | Offline speech: Windows TTS + speech recognition (no API, no GPU). |
-| `voice_main.py` | The hands-free front-end (push-to-talk, voice confirmations). |
-| `voice_convert.py` | Plug-in point for a custom (RVC) voice. |
-| `mic_test.py` | Microphone + speech-recognition diagnostic. |
-| `voice_check.py` | Full voice self-diagnosis (PASS/FAIL with fixes). |
-| `VOICE_GUIDE.md` | How to train your own voice on Colab. |
-| `run.bat` | Double-click launcher: `run.bat`, `run.bat voice`, `run.bat check`, `run.bat mic`. |
-| `test_e2e.py` | Scripted end-to-end test (uses the API). |
-| `TESTING.md` | The manual testing checklist. |
-| `selftest.py` | Offline checks (no API key needed). |
-| `verify_apps.py` | Lists every app the scanner can find. |
+### Requirements
 
-## Setup
+- Windows 10 or 11 (64-bit)
+- Python 3.12
+- A microphone and speakers
+- An API key for an AI provider — free tiers work (see Configuration)
+- Internet connection for the AI reasoning
+- No GPU required (the optional custom voice is CPU-only)
 
-Requires Python 3.10+ (tested on 3.13) and a Groq API key (free tier is fine).
+### Installation
 
 ```powershell
-# 1. install dependencies
-python -m pip install -r requirements.txt
-
-# 2. create a .env file in this folder with one line:
-#    GROQ_API_KEY=your_key_here
-
-# 3. check everything offline first (no API key needed)
-python selftest.py
-
-# 4. run it
-python main.py
-# ...or just double-click run.bat (it finds the right interpreter for you)
+git clone https://github.com/srav-ku/voiceStra.git
+cd voiceStra
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-If tools report missing libraries, you're running on the wrong Python - the app prints which
-interpreter it's using at startup, and `run.bat` picks your project venv automatically.
+### Configuration
 
-## What it can do right now
+**Recommended path (in the app):** open **Settings** and add your AI provider key there; connect Google for email and calendar the same way. Keys entered in the app are stored encrypted on your PC.
 
-- **Open apps** (Start Menu + Desktop + Public Desktop + Taskbar + Registry, with ranked
-  matching so "chrome" doesn't open "Chrome Remote Desktop"), launched **detached** so an
-  app's own console output never leaks into the chat
-- **Close apps** (asks for confirmation first)
-- **Open websites** and **search the web**
-- **Open folders** and **create folders**
-- **Media & volume control** (play/pause, next, previous, mute, volume up/down)
-- **Clipboard** read and write
-- **System info** (time, free disk space, battery)
-- **Reminders** ("remind me in 20 minutes", "at 7pm") - persisted, fire while the app runs
-- **Notes** you can add, list, and search
-- **Window control** - list open windows and focus / minimise / maximise one
-- **File organising** - sort Downloads into folders by type, with undo
-- **System actions** - shutdown / restart (with Windows' own countdown + cancel), sleep, lock
-- **Safe delete** - moves things to the Recycle Bin, never a permanent delete
-- **Web answers** - looks things up and answers in its own words
-- **Streaming replies** - text appears as it's written, instead of all at once
-- **Learns on its own** - quietly picks up durable facts about you from normal chat
-- **Memory you control** - ask what it knows, or tell it to forget
-- **Reads files** - summarise or answer questions about txt/md/code/PDF/docx
-- **Finds files** - by name, or search inside them
-- **Moves / copies / renames** files safely (move asks first; copy doesn't)
-- **Chrome profiles** - open Chrome under a specific account
-- **Reads a web page** back as text, so it can answer from a source
-- **Live status** - shows `... thinking` so you always know it's working
-- **Answer by voice/text** for risky actions (set `confirm_mode` to `chat`)
-- **Audit log** - see every action it took
-- **Window snapping** - left / right / top / bottom / centre / maximise
-- **Brightness** and **exact volume** percentage
-- **Weather** and a **daily briefing** (time, weather, reminders, disk)
-- **System awareness** - CPU/RAM/disk/battery, top processes, network check, list installed apps
-- **Proactive nudges** - quietly warns about low disk space or low battery
-- **Take screenshots** (saved to `Pictures\RealAssistant`)
-
-## The app (voice-first, PySide6/Qt)
-
-The main app is a **voice-first assistant** written in pure Python with **PySide6 (Qt)** -
-real desktop widgets and a true custom-painted visualiser (QPainter at 60 fps).
+**Advanced path (`.env` file):** copy the template and fill in whichever provider(s) you use:
 
 ```powershell
-.\run.bat ui          # or: python app_qt.py
+copy .env.example .env
 ```
 
-- A **glowing orb with blinking eyes** and concentric rings, plus a **live 44-bar waveform**.
-  Four states: idle (breathing), listening (reacts to your voice), thinking (swirling ring),
-  speaking (pulses).
-- **Sidebar navigation**: Home / Tasks / Insights / Settings, with a clear active state.
-- **Chat transcript** with bubbles (streaming text) and **quick-action chips** when idle.
-- **Floating glass input bar**: attach (placeholder), text field, gradient mic, send.
-- **Tasks** page shows your reminders; **Insights** shows real action stats from the audit log
-  (no fake business charts).
-- **Settings**: spoken voice, provider/model, service check.
-- **Compact mode** (button in the sidebar), `Ctrl+Space` to show/hide, hold `Space` to talk.
-- Preview render: `preview_aura.png` (captured from the real app).
+```ini
+OPENROUTER_API_KEY=your-key-here
+GROQ_API_KEY=your-key-here
+GEMINI_API_KEY=your-key-here
+GITHUB_TOKEN=your-token-here
+```
 
-Not included on purpose: sound-effect chimes (they get annoying), file attachments, and
-live partial transcription (we transcribe once you pause).
+For connecting Google step by step, see [`ACCOUNTS_SETUP.md`](ACCOUNTS_SETUP.md).
 
-`python app_qt.py --shot preview.png` renders a screenshot without a screen (useful for review).
-
-## Desktop app (chat style, older)
-
-A native window (no browser tab) with a chat UI, saved sessions, side panels and voice.
+### Run
 
 ```powershell
-.\run.bat ui          # or: python ui_app.py
+run.bat ui
 ```
 
-- **Chat** with live streaming text and tool-activity chips
-- **Sessions** - chats are saved and listed in the sidebar; reopen one and its context returns
-- **Panels** - Memory / Notes / Reminders in the right rail
-- **Voice** - the mic button dictates; the speaker button speaks replies
-- **States** - proper empty, loading and error states (with retry)
+Other modes: `run.bat voice` (terminal voice mode) · `run.bat check` and `run.bat mic` (voice diagnostics) · `run.bat providers` (provider speed test) · `run.bat qt` (earlier Qt build, kept for reference).
 
-Design: Apple design-system tokens (`design-systems/apple`) - neutral triad
-(`#000000` / `#f5f5f7` / `#ffffff`), single blue accent (`#0071e3`), capsule controls,
-thin chrome. The system font stack is used (no Inter/Roboto).
+`run.bat` automatically uses the project's `.venv` when present.
 
-## Voice (offline, no API, no GPU)
+### First Run
 
-The voice front-end uses Windows' own speech engine - nothing is sent anywhere, and there's
-nothing extra to install:
+No wizard — one screen. Allow microphone access when Windows asks (or run `run.bat mic` if something seems quiet). Sotto may ask to scan your installed apps; that's how it can open them by name later. Then hold **Space** and try one of the suggestions on screen: *System status*, *Set a timer*, *What's playing*, or *Organise downloads*.
 
-```powershell
-python voice_main.py        # or:  .\run.bat voice
-```
+## Usage — things you can say
 
-- Press **Enter**, speak, and it replies out loud.
-- Risky actions are confirmed **by voice** - say "yes" to approve, no clicking.
-- **Text-to-speech** uses the voices already installed on your PC.
-- **Speech-to-text** uses **Vosk** (offline, CPU). If it doesn't hear you, run
-  `python voice_check.py --mic` - it checks everything and prints PASS/FAIL with the fix.
-  Requires `sounddevice`, `numpy`, `vosk`, and a one-time model download (see Setup).
+- **Email** — "Anything urgent in my email?" · "What did Sara send?" · "Reply that I'll confirm tonight." · "Send it."
+- **Calendar** — "What's tomorrow?" · "Add a meeting with Rahul on Thursday at 3."
+- **Files & documents** — "Find my resume." · "What does this PDF say?" · "Organise my downloads." · "Move these into the Project folder."
+- **Screen** — "What's this error?" · "Summarize what's on screen."
+- **Apps & system** — "Open Photoshop." · "Volume at 30." · "Lock the PC."
+- **Memory & notes** — "Remember I ship on Fridays." · "Note: milk and eggs." · "Remind me at 4 to call the bank." · "What do you know about me?"
+- **Routines** — "Save this as my Monday routine." · "Run my Monday routine."
+- **Voice** — "Repeat that." · "Say it slower." · "Stop."
 
-Your own **custom voice sample** is the next step: render to audio, then convert it locally
-with a small voice-conversion model (CPU only - no GPU, no API).
+## Current Status
 
-### Choosing a voice
+*Honest snapshot: if it's listed as working, it has been exercised on a real machine.*
 
-Any user can pick their own voice. Set it in `settings.json`:
+**Working today**
+- Full voice loop: hold-to-talk, offline speech recognition, spoken replies, stop / repeat / slower, voice selection
+- Custom voice (experimental, optional): trained from your own samples, running through a local pipeline — slower than built-in voices
+- Email via your own Google account: summary, search, read, draft, send (with confirmation)
+- Calendar: today & week, add events (Google or `.ics`)
+- Files: find by name or content, read PDFs, organise Downloads (+ undo), move/copy/rename, safe deletes
+- Screen reading and window text (on request)
+- Apps & system: open/close, windows, volume, brightness, media, screenshots, clipboard, power actions (with confirmation)
+- Memory, notes, reminders, routines, daily briefing, weather
+- Interface: light (default) and dark; panels for memory, history, and settings
 
-```json
-{ "voice_name": "Microsoft Zira Desktop", "voice_rate": 0 }
-```
+**In progress**
+- The agent kernel: multi-step jobs with planning, verification, and permission tiers
+- Calendar: moving and cancelling events; finding free time
+- First-run polish and an installer
 
-...or just ask: *"list your voices"*, *"use the Zira voice"*. An empty `voice_name` means the
-system default.
-
-### Custom voice (your own sample, or a favourite actor's)
-
-The pipeline to go beyond the built-in voices is:
-
-```
-reply text  ->  Windows TTS (any voice)  ->  local voice conversion  ->  your target voice
-```
-
-The conversion step is a small **RVC-style** model, trained once from a clean sample of the
-target voice. After that it runs **locally on CPU** (no GPU, no API). Training is the heavy
-part - a one-time job that can be done on a free cloud GPU; the resulting model is then yours
-to run offline.
-
-_Note: cloning a real person's voice is fine for your own personal offline use. Sharing that
-model, or using it to impersonate someone publicly, is where it stops being okay - keep it
-personal._
-
-## Safety
-
-- The cloud model can only ever *ask for* a named tool - it never runs anything itself.
-- Actions that change or remove things (shutdown, restart, sleep, lock, delete, closing apps,
-  moving files) pop up a **native confirmation dialog** first. Nothing runs until you approve.
-- Shutdown/restart use Windows' own delayed shutdown, so you also get the OS countdown and can
-  abort it with "cancel shutdown".
-- Deletes go to the **Recycle Bin**, not a permanent delete.
-
-## How to extend it (adding a new tool)
-
-1. Write a function in `tools.py`.
-2. Decorate it:
-
-```python
-@tool(
-    name="set_volume",
-    description="Set the system volume to a percentage.",
-    parameters={
-        "type": "object",
-        "properties": {"percent": {"type": "integer"}},
-        "required": ["percent"],
-    },
-    danger=False,
-)
-def set_volume(percent):
-    ...            # do the thing, return a short string
-```
-
-That's it - the schema is sent to the model automatically and `main.py` dispatches to it.
-Set `danger=True` if the action is destructive; then the assistant will ask you to confirm.
-
-## How to customise
-
-- **Personality/voice:** edit `SYSTEM_PROMPT` in `config.py`.
-- **Model:** edit `MODEL_NAME` in `config.py`.
-- **Memory size / compression:** `RECENT_TURNS_KEPT`, `SUMMARIZE_WHEN_TURNS_OVER` in `config.py`.
-- **An app that won't open:** add its `.exe` path to `CUSTOM_APP_PATHS` in `tools.py`.
-- **Forget everything:** delete `%LOCALAPPDATA%\RealAssistant\memory.json`.
-
-## Settings
-
-A `settings.json` is created on first run at `%LOCALAPPDATA%\RealAssistant\settings.json`. Edit it to
-change the model, reply length, provider, or to disable specific tools:
-
-```json
-{
-  "model": "gemini-3.8-flash",
-  "api_key_env": "GEMINI_API_KEY",
-  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-  "temperature": 0.6,
-  "max_tokens": 1024,
-  "reasoning_effort": "low",
-  "denied_tools": [],
-  "proactive": true,
-  "proactive_interval_seconds": 300,
-  "confirm_mode": "dialog"
-}
-```
-
-### Switching provider
-
-`base_url` + `api_key_env` + `model` let you point at any OpenAI-compatible service.
-
-- **Default (Groq):** leave `base_url` empty, `api_key_env` = `GROQ_API_KEY`,
-  `model` = `openai/gpt-oss-20b`.
-- **Google Gemini:** `base_url` = `https://generativelanguage.googleapis.com/v1beta/openai/`,
-  `api_key_env` = `GEMINI_API_KEY`, `model` = `gemini-3.8-flash` (or `gemini-flash-latest`).
-
-Then put the matching key in `.env` and check it with `run.bat api`.
-
-### Other settings
-
-`confirm_mode` is `"dialog"` (a native yes/no box) or `"chat"` (answer by typing/voice -
-better once the voice layer exists). `reasoning_effort` only applies to `gpt-oss` models.
-
-Put any tool name in `denied_tools` (e.g. `"shutdown_pc"`) and the assistant will refuse to run it.
-
-## Packaging it as an .exe
-
-```powershell
-python -m pip install pyinstaller
-python build.py
-```
-
-That produces `dist\RealAssistant.exe` (one file). Put your `.env` next to the `.exe` before
-running it. If a tool uses a library PyInstaller can't detect automatically, add it to
-`HIDDEN_IMPORTS` in `build.py`.
-
-## Continuous integration
-
-The self-test workflow lives in `ci/selftest.yml`. GitHub refuses files under `.github/workflows/`
-unless the token has the **workflow** scope, so to switch CI on either:
-
-- copy `ci/selftest.yml` to `.github/workflows/selftest.yml` from GitHub's web UI (Actions tab),
-  or
-- give your token the `workflow` scope, then move the file there.
-
-Once active, it runs the offline self-test on every push and pull request on a Windows runner.
+**Planned**
+- "Prepare me for X" workflows (for example, interview prep) end-to-end
+- More Google services (Drive, Tasks) and a wider set of app integrations
+- Opt-in proactive briefs and monitoring; wake-word support
 
 ## Roadmap
 
-- [x] Text loop, persona, tool calling, app scanner
-- [x] Persistent memory, hardened app discovery, multi-tool chaining, graceful errors
-- [x] Web search / open site, screenshot, remember, folders, media/volume, clipboard, system info
-- [x] Reminders, notes, window control, file organising (with undo)
-- [x] System actions with confirmation, safe delete, web answers, streaming replies
-- [x] Auto-learning memory, recall/forget, file reading + search, audit log, settings.json
-- [x] Window snapping, brightness, exact volume, weather + daily briefing
-- [x] System awareness, proactive nudges, multi-step planning
-- [x] Packaging script (.exe) and CI self-test
-- [x] Core/UI split, move/copy/rename, Chrome profiles, web reading, verbal confirmations
-- [x] Offline voice front-end (Windows speech engine: TTS + recognition, no API)
-- [x] Desktop app UI (Apple-style: chat, sessions, panels, voice, states)
-- [x] Voice-first app: Flet, audio-reactive orb visualiser, tap-to-talk
-- [x] Rebuilt in PySide6/Qt: custom-painted orb + waveform (Qt is the stack we keep)
-- [x] Voice selection (installed voices + system default) and offline TTS/STT
-- [ ] Custom voice (RVC-style local conversion from a sample)
-- [ ] Deeper browser control (Playwright) and a desktop UI
-- [ ] Desktop UI (options: PySide6 / pywebview / Flet - see below)
+```text
+Voice control        →  it does what you say
+Computer tasks       →  it handles errands across your apps     ← now
+Multi-step jobs      →  it completes goals, with a check
+Prepared work        →  it gets things ready before you ask
+```
+
+The larger plan lives in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+
+## Documentation
+
+| Document | What's inside |
+|---|---|
+| [`WHAT_SOTTO_DOES_TODAY.md`](WHAT_SOTTO_DOES_TODAY.md) | Plain-language sheet of everything that works right now |
+| [`FEATURES.md`](FEATURES.md) | Full feature inventory |
+| [`V1_PRODUCT_PLAN.md`](V1_PRODUCT_PLAN.md) | Product plan and test checklist |
+| [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | Engineering roadmap, phased |
+| [`ACCOUNTS_SETUP.md`](ACCOUNTS_SETUP.md) | Connecting Google, email, and calendar |
+| [`VOICE_GUIDE.md`](VOICE_GUIDE.md) | Voices and the custom voice pipeline |
+| [`TESTING.md`](TESTING.md) | How to test the assistant |
+| [`BRAND_DISCOVERY.md`](BRAND_DISCOVERY.md) | Product identity and brand direction |
+| [`CAPABILITY_RESEARCH.md`](CAPABILITY_RESEARCH.md) | Research notes: what's possible, what's next |
+| [`HANDOFF.md`](HANDOFF.md) | Maintainer notes: architecture, files, gotchas |
+| [`DOCUMENTATION.md`](DOCUMENTATION.md) | Where documentation lives and how it's maintained |
+
+## Limitations
+
+- **Windows only** (10/11, 64-bit). No macOS or mobile.
+- **Bring your own AI key.** Free provider tiers work but can be slow or flaky; paid keys are steadier.
+- **Email and calendar need your Google setup** (or an `.ics` feed). Outlook IMAP with app passwords is not supported — Microsoft disabled basic auth; a Graph integration is future work.
+- **No GPU:** built-in voices are instant, but the optional custom voice runs on CPU and is slow — seconds per sentence, about a minute for a long paragraph.
+- **Multi-step goals are not here yet.** "Get me ready for tomorrow's interview" as a single ask is the next milestone (the agent kernel), not a current claim.
+- **Screenshots and docs can lag the newest UI** occasionally; core flows are kept current.
+- **Single user, single machine.** No accounts, no sync.
+- Early software: expect rough edges, and no installer yet.
+
+## Privacy & Permissions
+
+- **Microphone** — used only while you're holding to talk. Speech recognition runs on your PC; audio isn't stored.
+- **AI provider** — the reasoning happens through the provider you choose, with your own key. Only the text of your request goes out; files, audio, and credentials stay local.
+- **Google account (optional)** — you sign in yourself; tokens stay on your machine, and you can disconnect any time from Settings.
+- **Secrets** — encrypted on your PC before being stored (Windows DPAPI, under `%LOCALAPPDATA%\RealAssistant`).
+- **Screen** — read only when you ask.
+- **Consequential actions** — confirmations before sending, deleting, or power actions; a local record of actions is kept.
+- **No telemetry.** Nothing is sent anywhere except your chosen AI provider.
+
+## Contributing
+
+An early, single-maintainer project. Found a bug or have a suggestion? Open a GitHub issue with what you tried and what happened. Keep pull requests small and focused; run `run.bat check` before submitting. For anything larger, please open an issue first.
+
+## Acknowledgements
+
+- **UI & app shell:** [pywebview](https://pywebview.flowrl.com/) (WebView2); PySide6 for the earlier Qt build
+- **Speech recognition:** [Vosk](https://alphacephei.com/vosk/) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — both run locally
+- **Speech output:** Windows SAPI voices; the custom-voice pipeline builds on the RVC community's work (via Applio), adapted to run without the fairseq dependency
+- **AI providers:** OpenRouter, Groq, Google Gemini, and GitHub Models — bring your own key
+- **Google:** Gmail and Calendar APIs, with your own sign-in
+- **Foundations:** numpy, sounddevice, pypdf, Pillow, psutil, pycaw, ddgs, python-dotenv
+
+## License
+
+No license has been chosen for this project yet — all rights reserved by default. A license will be added before any public release.
