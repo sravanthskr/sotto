@@ -1,7 +1,7 @@
 # PRODUCT & BRAND DISCOVERY
 ### RealAssistant → a product with a name, a soul, and a reason to exist
 
-*Status: discovery proposal for founder review · October 2026*
+*Status: direction approved by founder — name **Sotto**, tagline “Consider it done.” (Oct 1, 2026). Formal name clearance still pending.*
 *Markers: **[R]** researched this session · **[V]** verified in project work · **[I]** product inference · **[P]** creative proposal*
 
 ---
