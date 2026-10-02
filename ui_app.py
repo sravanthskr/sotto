@@ -26,7 +26,7 @@ def main():
         js_api=api,
         width=1180,
         height=780,
-        min_size=(900, 600),
+        min_size=(360, 90),   # small enough for the floating mini overlay (normal window 1180x780)
         background_color="#F6F7F6",
     )
     api.set_window(window)

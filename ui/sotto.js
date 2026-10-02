@@ -186,6 +186,7 @@
     if (state === next) return;
     state = next; stateSince = performance.now();
     body.dataset.state = next;
+  try { var _ms = document.getElementById('miniStatus'); if (_ms) { var _mm = {listening:'Listening', thinking:'Thinking', acting:'Working', speaking:'Speaking', responding:'Replying', waiting:'Waiting', idle:'Ready'}; _ms.textContent = _mm[next] || next; } } catch (e) {}
     if (HINT[next] !== undefined) $('#hint').textContent = HINT[next];
     else if (next !== 'responding') $('#hint').textContent = LABEL[next] || '';
     else $('#hint').textContent = '';
@@ -546,6 +547,10 @@
   function speakFallbackTimer(text, factor = 1) { clearTimeout(speakingFallback); speakingFallback = setTimeout(endSpeech, Math.min(45000, 1200 + String(text || '').length * 62 * factor)); }
 
   async function send(text, viaVoice = false, isRetry = false) {
+  // Mini overlay controls by phrase
+  const _mt = String(text || '').trim().toLowerCase();
+  if (_mt === 'mini mode' || _mt === 'overlay mode' || _mt === 'mini') { if (typeof setMiniMode === 'function') setMiniMode(true); return; }
+  if (_mt === 'full mode' || _mt === 'expand' || _mt === 'back to full') { if (typeof setMiniMode === 'function') setMiniMode(false); return; }
     text = (text || '').trim();
     if (!text) return;
     if (!isRetry) retries = 0;
@@ -606,6 +611,7 @@
         }
         else if (e.type === 'speak_only') { speakOut(e.text, { rate: e.rate }); toast(e.rate && e.rate < 1 ? 'Slower' : 'Again', 'VOICE', 1400); }
         else if (e.type === 'learned') { /* quiet */ }
+    else if (e.type === 'hotkey') { if (document.body.classList.contains('mini') && typeof setMiniMode === 'function') setMiniMode(false); }
         else if (e.type === 'done') {
           callIf('log', 'done');
           retries = 0;
@@ -1406,6 +1412,21 @@
         } catch {}
       });
     }
+
+    // ---- mini overlay (floating bar) ----
+    async function setMiniMode(on) {
+      const api = bridge();
+      if (api && hasApi('set_window_mode')) {
+        try { await api.set_window_mode(on ? 'mini' : 'full'); } catch {}
+      }
+      document.body.classList.toggle('mini', !!on);
+    }
+    const btnMini = $('#btnMini');
+    if (btnMini) btnMini.addEventListener('click', () => setMiniMode(true));
+    const miniExpandEl = $('#miniExpand');
+    if (miniExpandEl) miniExpandEl.addEventListener('click', () => setMiniMode(false));
+    const miniOrbEl = $('#miniOrb');
+    if (miniOrbEl) miniOrbEl.addEventListener('click', () => { if (typeof toggleTalk === 'function') toggleTalk(); });
 
     $('#btnSend').addEventListener('click', () => { const v = $('#typeInput').value; $('#typeInput').value = ''; setTyping(false); send(v); });
     $('#typeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; setTyping(false); send(v); } });

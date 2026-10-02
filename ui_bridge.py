@@ -682,17 +682,38 @@ class Api:
         threading.Thread(target=_hotkey_loop, daemon=True).start()
 
     def set_window_mode(self, mode):
-        """Switch between full window (1180x780) and floating mini overlay (360x76)."""
+        """Switch between the full window and the floating mini overlay."""
         m = str(mode or "full").lower()
-        if not getattr(self, "_window", None):
+        w = getattr(self, "_window", None)
+        if not w:
             return json.dumps(False)
         try:
             if m == "mini":
-                self._window.resize(360, 76)
-                self._window.on_top = True
+                try:
+                    self._prev_rect = (w.x, w.y, w.width, w.height)
+                except Exception:
+                    self._prev_rect = None
+                w.resize(380, 118)
+                try:
+                    import ctypes
+                    sw = ctypes.windll.user32.GetSystemMetrics(0)
+                    sh = ctypes.windll.user32.GetSystemMetrics(1)
+                    w.move(max(0, sw - 380 - 24), max(0, sh - 118 - 64))
+                except Exception:
+                    pass
+                w.on_top = True
+                _log("set_window_mode -> mini")
             else:
-                self._window.resize(1180, 780)
-                self._window.on_top = False
+                w.on_top = False
+                prev = getattr(self, "_prev_rect", None)
+                if prev:
+                    x, y, ww, hh = prev
+                    w.resize(int(ww), int(hh))
+                    w.move(int(x), int(y))
+                    self._prev_rect = None
+                else:
+                    w.resize(1180, 780)
+                _log("set_window_mode -> full")
             return json.dumps(True)
         except Exception as e:
             _log(f"set_window_mode error: {e}")

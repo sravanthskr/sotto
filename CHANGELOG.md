@@ -16,6 +16,9 @@ All notable changes to Sotto are recorded in this file.
 
 ## [Unreleased]
 
+### Added
+- Floating mini overlay: shrink Sotto to a small always-on-top bar (new Mini button in the header, or say "mini mode"); expand back from the bar or say "full mode". While it's in mini mode, Ctrl+Space brings Sotto back from anywhere.
+
 *See the Roadmap section of the [README](README.md) for what's being worked on.*
 
 ## [1.0.0] — 2026-10-01
