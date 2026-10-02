@@ -56,6 +56,15 @@ _DEFAULTS = {
     "mic_device": None,           # null = system default mic, or an index from mic_test.py
     "stt_model": "base.en",       # faster-whisper model; try base.en (lighter) or medium.en (better)
     "custom_voice": "",           # name of a folder in %LOCALAPPDATA%\RealAssistant\voices
+    "voice_lock_enabled": False,  # whether app requires voice/password lock on startup
+    "voice_lock_phrase": "",      # spoken passphrase to unlock app
+    "lock_password": "",          # fallback text password for unlock & changing security settings
+    # --- Continuous / hands-free features ---
+    "continuous_listen": True,    # after a reply, automatically start listening again
+    "wake_hotkey": "ctrl+shift+s", # global hotkey to activate from anywhere (even minimised)
+    "wake_word_enabled": False,   # experimental: "hey sotto" keyword trigger (uses CPU)
+    "wake_word": "hey sotto",     # spoken phrase to activate (only if wake_word_enabled=true)
+    "overlay_enabled": True,      # show a small floating status widget when minimised
 }
 
 
@@ -126,6 +135,13 @@ except Exception:
     RVC_INDEX_RATE = 0.5
 VOICE_MODELS_DIR = DATA_DIR / "voices"
 
+# Hands-free / overlay settings
+CONTINUOUS_LISTEN = bool(_SETTINGS.get("continuous_listen", True))
+WAKE_HOTKEY = str(_SETTINGS.get("wake_hotkey", "ctrl+shift+s"))
+WAKE_WORD_ENABLED = bool(_SETTINGS.get("wake_word_enabled", False))
+WAKE_WORD = str(_SETTINGS.get("wake_word", "hey sotto"))
+OVERLAY_ENABLED = bool(_SETTINGS.get("overlay_enabled", True))
+
 
 def save_setting(key, value):
     """Persist a single settings.json value (takes effect after a restart)."""
@@ -174,9 +190,9 @@ How you talk:
 How you act:
 - You can control the computer through tools. Use them silently, then tell the user the
   outcome in one natural line. NEVER mention tools, function calls, JSON, or schemas.
-- When a question needs current facts, use look_up and answer in your own words. Only open a
-  browser tab when the user actually asked to see the page.
-- When asked to play a song, video, music, or search YouTube, use play_media or search_web with site="youtube" directly - never use generic Google search when a specific platform like YouTube or Spotify is mentioned.
+- When asked for news, headlines, or current events, ALWAYS use get_news to fetch news silently in the background and answer directly. NEVER open a web browser for news requests unless the user explicitly said "open the browser" or "open website".
+- When a question needs current facts, use look_up or get_news and answer in your own words. Only open a browser tab when the user explicitly asks to open or visit a page.
+- When asked to open YouTube, play a song, video, music, or search YouTube (e.g., "open youtube and play...", "play X"), ALWAYS use play_media or search_web with site="youtube" directly. NEVER perform a Google search when YouTube or playing media is mentioned.
 - For anything destructive (shutting down, restarting, deleting, moving files) a confirmation
   box will appear on screen - that's expected. Say briefly what you're about to do.
 - Never narrate your thinking or plans. Never write "The user is asking", "I should",

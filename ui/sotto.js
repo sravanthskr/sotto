@@ -224,6 +224,11 @@
     if (!text) { endSpeech(); return; }
     if (speaking) { speechQueue.push({ text, opts }); return; }
     setSpeaking(true);
+    // If running with desktop app bridge, Python backend handles TTS via voice.say; disable browser synth to avoid double voice (reverb)
+    if (bridge()) {
+      speakFallbackTimer(text, opts.rate && opts.rate < 1 ? 1.5 : 1);
+      return;
+    }
     if (synth && !reducedMedia.matches && !body.classList.contains('reduce-motion')) {
       try {
         const u = new SpeechSynthesisUtterance(text);
@@ -677,18 +682,18 @@
       }, 260);
     }
     try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
-    /* auto end-of-speech: once you've spoken, ~1.8s of silence stops listening and sends */
+    /* auto end-of-speech: once you've spoken, ~1.0s of silence stops listening and sends */
     const listenStart = performance.now();
     let heardSound = false, lastLoud = listenStart, maxSeen = 0;
     levelTimer = setInterval(async () => {
       try { level = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
       const now = performance.now();
       if (level > maxSeen) maxSeen = level;
-      const thresh = Math.max(0.05, maxSeen * 0.28);
+      const thresh = Math.max(0.04, maxSeen * 0.25);
       if (level > thresh) { heardSound = true; lastLoud = now; }
       const elapsed = (now - listenStart) / 1000;
       const silentFor = (now - lastLoud) / 1000;
-      if (elapsed > 1 && ((heardSound && silentFor > 1.8) || (!heardSound && elapsed > 8) || elapsed > 60)) {
+      if (elapsed > 0.8 && ((heardSound && silentFor > 1.0) || (!heardSound && elapsed > 8) || elapsed > 60)) {
         callIf('log', 'auto-stop heard=' + heardSound + ' silent=' + silentFor.toFixed(1) + 's elapsed=' + elapsed.toFixed(1) + 's');
         stopListening();
       }
@@ -711,6 +716,7 @@
     if (!text) {
       setState('idle');
       toast('I didn’t quite catch that.', 'HEARD', 3000);
+      scheduleAutoListen();
       return;
     }
     setState('idle');
@@ -731,6 +737,124 @@
   function toggleTalk() {
     if (speaking) { stopSpeaking(); return; }
     listening ? stopListening() : startListening();
+  }
+
+  /* ---------------------------------------------------------- continuous listen & lock */
+  let autoListen = localStorage.getItem('sotto_auto_listen') === 'true';
+  let autoListenTimer = null;
+  function scheduleAutoListen() {
+    if (!autoListen || listening || state !== 'idle' || isAppLocked) return;
+    clearTimeout(autoListenTimer);
+    autoListenTimer = setTimeout(() => {
+      if (autoListen && !listening && state === 'idle' && !isAppLocked) {
+        startListening();
+      }
+    }, 900);
+  }
+
+  let isAppLocked = false;
+  let failedLockAttempts = 0;
+  let lockListening = false;
+
+  async function checkAppLock() {
+    const api = bridge();
+    if (!api || !hasApi('get_lock_status')) return;
+    try {
+      const res = JSON.parse(await api.get_lock_status());
+      const sub = $('#lockStatusSub');
+      if (sub) sub.textContent = res.enabled ? 'Enabled (' + res.phrase_hint + ')' : 'Disabled';
+      const chk = $('#chkVoiceLockEnable');
+      if (chk) chk.checked = res.enabled;
+      
+      if (res.enabled) {
+        isAppLocked = true;
+        const overlay = $('#lockOverlay');
+        if (overlay) { overlay.hidden = false; overlay.style.display = 'flex'; }
+        startLockListening();
+      } else {
+        isAppLocked = false;
+        const overlay = $('#lockOverlay');
+        if (overlay) { overlay.hidden = true; overlay.style.display = 'none'; }
+      }
+      try {
+        const ov = $('#lockOverlay');
+        const vis = !!ov && !ov.hidden && getComputedStyle(ov).display !== 'none';
+        if (api.log) api.log('lockcheck: enabled=' + res.enabled + ' overlayVisible=' + vis);
+      } catch (e) {}
+    } catch(e) {
+      // Never block the app on a lock-state read failure - fail open.
+      isAppLocked = false;
+      const overlay = $('#lockOverlay');
+      if (overlay) { overlay.hidden = true; overlay.style.display = 'none'; }
+    }
+  }
+
+  async function startLockListening() {
+    if (!isAppLocked || lockListening) return;
+    const api = bridge();
+    if (!api) return;
+    lockListening = true;
+    const orb = $('#lockOrb');
+    const live = $('#lockLiveTranscript');
+    if (live) live.textContent = 'Listening for passphrase…';
+    if (orb) orb.style.transform = 'scale(1.1)';
+
+    try { await api.listen_start(); } catch { lockListening = false; return; }
+    
+    let heardSound = false, lastLoud = performance.now(), maxSeen = 0, listenStart = performance.now();
+    const lockTimer = setInterval(async () => {
+      if (!isAppLocked) { clearInterval(lockTimer); return; }
+      try {
+        const lvl = Math.max(0, Math.min(1, (await api.listen_level()) || 0));
+        if (lvl > maxSeen) maxSeen = lvl;
+        if (lvl > Math.max(0.04, maxSeen * 0.25)) { heardSound = true; lastLoud = performance.now(); }
+      } catch {}
+      
+      const now = performance.now();
+      const elapsed = (now - listenStart) / 1000;
+      const silentFor = (now - lastLoud) / 1000;
+      
+      if (elapsed > 0.8 && ((heardSound && silentFor > 1.0) || (!heardSound && elapsed > 8))) {
+        clearInterval(lockTimer);
+        lockListening = false;
+        if (orb) orb.style.transform = 'scale(1)';
+        let text = '';
+        try { text = (await api.listen_stop()) || ''; } catch {}
+        if (live && text) live.textContent = '“' + text + '”';
+        
+        if (text) {
+          try {
+            const ver = JSON.parse(await api.verify_voice_lock(text));
+            if (ver.ok) {
+              unlockApp();
+              return;
+            }
+          } catch(e) {}
+        }
+        
+        failedLockAttempts += 1;
+        if (failedLockAttempts >= 3) {
+          if (live) live.textContent = 'Voice match failed. Please enter text password.';
+          $('#lockPasswordSection').style.display = 'block';
+          $('#lockPasswordInput').focus();
+        } else {
+          if (live) live.textContent = 'Passphrase didn\'t match. Retrying…';
+          setTimeout(() => { if (isAppLocked) startLockListening(); }, 1200);
+        }
+      }
+    }, 50);
+  }
+
+  function unlockApp() {
+    isAppLocked = false;
+    lockListening = false;
+    const overlay = $('#lockOverlay');
+    if (overlay) {
+      overlay.style.opacity = '0';
+      setTimeout(() => { overlay.hidden = true; overlay.style.display = 'none'; overlay.style.opacity = '1'; }, 350);
+    }
+    toast('Welcome back!', 'UNLOCKED', 3000);
+    scheduleAutoListen();
   }
 
   /* ---------------------------------------------------------- sheets */
@@ -958,6 +1082,7 @@
         if (info.version) $('#aboutLine').textContent = 'Sotto · ' + info.version;
         if (info.apps) $('#scanCount').textContent = info.apps + ' apps ready — rescan anytime';
         refreshAccounts();
+        checkAppLock();
         if (info.scan_needed) {
           showPrompt('First time here? Let me look at what\u2019s installed on this computer once — then I can open your apps by name. Rescan anytime in Settings.',
             { action: 'Scan now', onAction: () => runAppScan() });
@@ -1125,6 +1250,162 @@
       body.classList.toggle('reduce-motion', on);
       toast(on ? 'Motion reduced' : 'Full motion', 'SETTING', 1600);
     });
+
+    /* Auto-listen & Security Lock event listeners */
+    const chkAL = $('#chkAutoListen');
+    if (chkAL) {
+      chkAL.checked = autoListen;
+      chkAL.addEventListener('change', (e) => {
+        autoListen = e.target.checked;
+        try { localStorage.setItem('sotto_auto_listen', String(autoListen)); } catch {}
+        toast(autoListen ? 'Continuous listening enabled' : 'Continuous listening disabled', 'VOICE', 2000);
+        if (autoListen) scheduleAutoListen();
+      });
+    }
+
+    const btnLS = $('#btnLockSetup');
+    if (btnLS) {
+      btnLS.addEventListener('click', async () => {
+        openSheet('sheetLockSetup');
+        const api = bridge();
+        if (!api || !hasApi('get_lock_status')) return;
+        try {
+          const st = JSON.parse(await api.get_lock_status());
+          $('#chkVoiceLockEnable').checked = st.enabled;
+          $('#divLockVerifyWrap').style.display = st.has_password ? 'block' : 'none';
+        } catch {}
+      });
+    }
+
+    const btnSLS = $('#btnSaveLockSettings');
+    if (btnSLS) {
+      btnSLS.addEventListener('click', async () => {
+        const api = bridge();
+        if (!api || !hasApi('set_lock_settings')) return;
+        const enabled = $('#chkVoiceLockEnable').checked;
+        const phrase = $('#txtLockPhrase').value.trim();
+        const newPwd = $('#txtLockPassword').value.trim();
+        const verifyPwd = $('#txtLockVerifyPassword').value.trim();
+        let res = { ok: false };
+        try {
+          res = JSON.parse(await api.set_lock_settings(verifyPwd, enabled, phrase, newPwd));
+        } catch {}
+        if (res.ok) {
+          toast('Lock settings saved.', 'SECURITY', 3000);
+          $('#txtLockVerifyPassword').value = '';
+          closeSheets();
+          checkAppLock();
+        } else {
+          toast(res.error || 'Failed to save lock settings.', 'NOTICE', 4000);
+        }
+      });
+    }
+
+    const btnTLM = $('#btnToggleLockMode');
+    if (btnTLM) {
+      btnTLM.addEventListener('click', () => {
+        const pSec = $('#lockPasswordSection');
+        const isVisible = pSec.style.display !== 'none';
+        pSec.style.display = isVisible ? 'none' : 'block';
+        btnTLM.textContent = isVisible ? 'Use Text Password' : 'Use Voice Passphrase';
+        if (!isVisible) $('#lockPasswordInput').focus();
+      });
+    }
+
+    const btnSLP = $('#btnSubmitLockPassword');
+    if (btnSLP) {
+      btnSLP.addEventListener('click', async () => {
+        const api = bridge();
+        const val = $('#lockPasswordInput').value.trim();
+        if (!val) return;
+        if (api && hasApi('verify_password_lock')) {
+          let res = { ok: false };
+          try { res = JSON.parse(await api.verify_password_lock(val)); } catch {}
+          if (res.ok) { unlockApp(); return; }
+        }
+        toast(res.error || 'Incorrect password.', 'LOCK', 4000);
+      });
+    }
+
+    const lInput = $('#lockPasswordInput');
+    if (lInput) {
+      lInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') $('#btnSubmitLockPassword').click();
+      });
+    }
+
+    const lOrb = $('#lockOrb');
+    if (lOrb) {
+      lOrb.addEventListener('click', () => {
+        if (isAppLocked && !lockListening) startLockListening();
+      });
+    }
+
+    // ---- Forgot passphrase: reset via Windows sign-in ----
+    const btnForgot = $('#btnForgotLock');
+    if (btnForgot) {
+      btnForgot.addEventListener('click', () => {
+        const p = $('#lockResetPanel');
+        if (p) p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+      });
+    }
+    const btnForgotCancel = $('#btnForgotCancel');
+    if (btnForgotCancel) {
+      btnForgotCancel.addEventListener('click', () => {
+        const p = $('#lockResetPanel'); if (p) p.style.display = 'none';
+        const st = $('#sysVerifyStatus'); if (st) st.textContent = '';
+        const acts = $('#lockResetActions'); if (acts) acts.style.display = 'none';
+      });
+    }
+    const btnSysVerify = $('#btnSysVerify');
+    if (btnSysVerify) {
+      btnSysVerify.addEventListener('click', async () => {
+        const api = bridge();
+        const st = $('#sysVerifyStatus');
+        if (!api || !hasApi('sys_verify_for_reset')) {
+          if (st) st.textContent = 'This feature needs the updated app. Restart Sotto and try again.';
+          return;
+        }
+        if (st) st.textContent = 'Waiting for your Windows sign-in...';
+        btnSysVerify.disabled = true;
+        let res = { ok: false };
+        try { res = JSON.parse(await api.sys_verify_for_reset('Reset the Sotto voice lock')); } catch {}
+        btnSysVerify.disabled = false;
+        if (res.ok) {
+          if (st) st.textContent = 'Verified. You can now remove the lock or set a new passphrase.';
+          const acts = $('#lockResetActions'); if (acts) acts.style.display = 'block';
+        } else {
+          if (st) st.textContent = res.detail || 'Verification was not completed.';
+        }
+      });
+    }
+    const btnResetRemove = $('#btnResetRemove');
+    if (btnResetRemove) {
+      btnResetRemove.addEventListener('click', async () => {
+        const api = bridge();
+        if (!api || !hasApi('reset_voice_lock')) return;
+        try {
+          const res = JSON.parse(await api.reset_voice_lock('remove', '', ''));
+          if (res.ok) { toast('Lock removed - Sotto will open straight away.', 'SECURITY', 3500); unlockApp(); }
+          else { const st = $('#sysVerifyStatus'); if (st) st.textContent = res.error || 'Could not reset the lock.'; }
+        } catch {}
+      });
+    }
+    const btnResetSet = $('#btnResetSet');
+    if (btnResetSet) {
+      btnResetSet.addEventListener('click', async () => {
+        const api = bridge();
+        if (!api || !hasApi('reset_voice_lock')) return;
+        const npEl = $('#resetNewPhrase');
+        const np = (npEl && npEl.value.trim()) || '';
+        if (!np) { const st = $('#sysVerifyStatus'); if (st) st.textContent = 'Type the new passphrase first.'; return; }
+        try {
+          const res = JSON.parse(await api.reset_voice_lock('update', np, ''));
+          if (res.ok) { toast('New passphrase set.', 'SECURITY', 3500); unlockApp(); }
+          else { const st = $('#sysVerifyStatus'); if (st) st.textContent = res.error || 'Could not update the lock.'; }
+        } catch {}
+      });
+    }
 
     $('#btnSend').addEventListener('click', () => { const v = $('#typeInput').value; $('#typeInput').value = ''; setTyping(false); send(v); });
     $('#typeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; setTyping(false); send(v); } });

@@ -99,7 +99,7 @@ def main():
 
     print("\n== safety & new tools ==")
     for n in ("shutdown_pc", "restart_pc", "cancel_shutdown", "sleep_pc", "lock_pc",
-              "delete_path", "look_up"):
+              "delete_path", "look_up", "get_news"):
         assert n in tools.REGISTRY, n
     assert tools.is_dangerous("shutdown_pc") and tools.is_dangerous("delete_path")
     assert not tools.is_dangerous("cancel_shutdown")

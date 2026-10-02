@@ -386,6 +386,149 @@ class Api:
             _log(f"scan_apps failed: {e}")
             return json.dumps({"count": 0, "took": 0, "error": str(e)[:150]})
 
+    # ---- App Lock & Security -------------------------------------------
+    def get_lock_status(self):
+        from config import load_settings
+        s = load_settings()
+        enabled = bool(s.get("voice_lock_enabled", False))
+        phrase = str(s.get("voice_lock_phrase", "") or "")
+        has_phrase = bool(phrase.strip())
+        has_pwd = bool(str(s.get("lock_password", "") or "").strip())
+        # A lock is only active when the user finished setting it up
+        # (enabled + spoken passphrase). A half-configured lock never locks.
+        if enabled and not has_phrase:
+            try:
+                from config import save_setting
+                save_setting("voice_lock_enabled", False)
+                _log("lock state enabled without a passphrase - auto-disabled")
+            except Exception as e:
+                _log(f"lock auto-disable failed: {e}")
+            enabled = False
+        return json.dumps({
+            "enabled": enabled,
+            "has_phrase": has_phrase,
+            "has_password": has_pwd,
+            "phrase_hint": (phrase[:3] + "..." + phrase[-2:]) if len(phrase) > 5 else "Set"
+        })
+
+    def verify_voice_lock(self, spoken_text):
+        from config import load_settings
+        s = load_settings()
+        if not s.get("voice_lock_enabled", False):
+            return json.dumps({"ok": True})
+        
+        target = str(s.get("voice_lock_phrase", "") or "").strip().lower()
+        if not target:
+            return json.dumps({"ok": True})
+        
+        spoken = str(spoken_text or "").strip().lower()
+        if not spoken:
+            return json.dumps({"ok": False})
+        
+        # Clean punctuation
+        import re
+        target_clean = re.sub(r"[^\w\s]", "", target)
+        spoken_clean = re.sub(r"[^\w\s]", "", spoken)
+        
+        # Substring or word overlap matching
+        if target_clean in spoken_clean:
+            return json.dumps({"ok": True})
+        
+        target_words = set(target_clean.split())
+        spoken_words = set(spoken_clean.split())
+        if target_words and spoken_words:
+            overlap = len(target_words & spoken_words) / float(len(target_words))
+            if overlap >= 0.7:
+                return json.dumps({"ok": True})
+                
+        return json.dumps({"ok": False})
+
+    def verify_password_lock(self, password_text):
+        from config import load_settings
+        s = load_settings()
+        stored_pwd = str(s.get("lock_password", "") or "").strip()
+        pwd = str(password_text or "").strip()
+        
+        # No fallback password stored: only fine while the lock is off.
+        # If a lock is active, refuse and point to the Windows-verified reset.
+        if not stored_pwd:
+            if not bool(s.get("voice_lock_enabled", False)):
+                return json.dumps({"ok": True})
+            return json.dumps({"ok": False, "error": "No fallback password is set. Use 'Forgot passphrase?' to reset with your Windows sign-in."})
+            
+        return json.dumps({"ok": (pwd == stored_pwd)})
+
+    def set_lock_settings(self, curr_password, enabled, phrase, new_password):
+        from config import load_settings, save_setting
+        s = load_settings()
+        stored_pwd = str(s.get("lock_password", "") or "").strip()
+        
+        # Verify current password if a lock or password was previously enabled/set
+        if stored_pwd and str(curr_password or "").strip() != stored_pwd:
+            return json.dumps({"ok": False, "error": "Incorrect verification password."})
+            
+        phrase_val = str(phrase or "").strip()
+        new_pwd_val = str(new_password or "").strip() if new_password is not None else stored_pwd
+        
+        if enabled and not phrase_val:
+            return json.dumps({"ok": False, "error": "Please provide a spoken passphrase for the voice lock."})
+            
+        if enabled and not new_pwd_val and not stored_pwd:
+            return json.dumps({"ok": False, "error": "Please set a fallback text password."})
+            
+        save_setting("voice_lock_enabled", bool(enabled))
+        save_setting("voice_lock_phrase", phrase_val)
+        if new_password is not None and str(new_password).strip():
+            save_setting("lock_password", str(new_password).strip())
+            
+        _log(f"set_lock_settings -> enabled={enabled}")
+        return json.dumps({"ok": True})
+
+    def sys_verify_for_reset(self, reason=""):
+        """Verify the user with the Windows sign-in (Hello / PIN / password).
+        Used to reset a forgotten voice lock."""
+        try:
+            import sysauth
+            r = sysauth.verify_windows_identity(reason or "Reset the Sotto voice lock")
+            if r.get("ok"):
+                import time as _t
+                self._reset_verified_until = _t.time() + 300
+            _log(f"sys_verify_for_reset -> ok={r.get('ok')} method={r.get('method', '')}")
+            return json.dumps(r)
+        except Exception as e:
+            _log(f"sys_verify_for_reset failed: {e}")
+            return json.dumps({"ok": False, "detail": f"Could not start verification: {str(e)[:120]}"})
+
+    def reset_voice_lock(self, mode, new_phrase="", new_password=""):
+        """Reset the voice lock after a successful Windows-identity check.
+        mode='remove' disables the lock; mode='update' sets a new passphrase.
+        Nothing else is deleted or changed."""
+        import time as _t
+        if _t.time() > float(getattr(self, "_reset_verified_until", 0)):
+            return json.dumps({"ok": False, "error": "Please verify with your Windows sign-in first."})
+        from config import save_setting
+        mode = str(mode or "").strip().lower()
+        if mode == "remove":
+            save_setting("voice_lock_enabled", False)
+            save_setting("voice_lock_phrase", "")
+            save_setting("lock_password", "")
+            self._reset_verified_until = 0
+            _log("reset_voice_lock -> lock removed via Windows-verified reset")
+            return json.dumps({"ok": True})
+        if mode == "update":
+            phrase = str(new_phrase or "").strip()
+            if not phrase:
+                return json.dumps({"ok": False, "error": "The new passphrase is empty."})
+            save_setting("voice_lock_phrase", phrase)
+            save_setting("voice_lock_enabled", True)
+            pwd = str(new_password or "").strip()
+            if pwd:
+                save_setting("lock_password", pwd)
+            self._reset_verified_until = 0
+            _log("reset_voice_lock -> passphrase updated via Windows-verified reset")
+            return json.dumps({"ok": True})
+        return json.dumps({"ok": False, "error": "Unknown reset mode."})
+
     # ---- accounts (Phase 1) --------------------------------------------
     # Credentials are entered in the app's Settings sheet and travel only to this
     # process - they are never accepted through model tool calls.
@@ -497,6 +640,72 @@ class Api:
                  "key": bool(os.environ.get(p.get("api_key_env", ""), "").strip())}
                 for p in PROVIDERS],
         })
+
+    # ---- window overlay & global hotkey -------------------------------
+    def set_window(self, window):
+        self._window = window
+        self._start_global_hotkey()
+
+    def _start_global_hotkey(self):
+        """Register native Windows global hotkey Ctrl+Space on background thread."""
+        import threading
+        import ctypes
+        from ctypes import wintypes
+        
+        def _hotkey_loop():
+            try:
+                user32 = ctypes.windll.user32
+                HOTKEY_ID = 101
+                MOD_CONTROL = 0x0002
+                VK_SPACE = 0x20
+                
+                if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL, VK_SPACE):
+                    _log("RegisterHotKey failed (may already be registered)")
+                    return
+                
+                msg = wintypes.MSG()
+                while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+                    if msg.message == 0x0312:  # WM_HOTKEY
+                        _log("Global hotkey Ctrl+Space pressed")
+                        if self._window:
+                            try:
+                                self._window.restore()
+                                self._window.show()
+                            except Exception:
+                                pass
+                        self._push({"type": "hotkey", "action": "activate"})
+                    user32.TranslateMessage(ctypes.byref(msg))
+                    user32.DispatchMessageW(ctypes.byref(msg))
+            except Exception as e:
+                _log(f"hotkey_loop error: {e}")
+
+        threading.Thread(target=_hotkey_loop, daemon=True).start()
+
+    def set_window_mode(self, mode):
+        """Switch between full window (1180x780) and floating mini overlay (360x76)."""
+        m = str(mode or "full").lower()
+        if not getattr(self, "_window", None):
+            return json.dumps(False)
+        try:
+            if m == "mini":
+                self._window.resize(360, 76)
+                self._window.on_top = True
+            else:
+                self._window.resize(1180, 780)
+                self._window.on_top = False
+            return json.dumps(True)
+        except Exception as e:
+            _log(f"set_window_mode error: {e}")
+            return json.dumps(False)
+
+    def set_always_on_top(self, on_top):
+        if not getattr(self, "_window", None):
+            return json.dumps(False)
+        try:
+            self._window.on_top = bool(on_top)
+            return json.dumps(True)
+        except Exception:
+            return json.dumps(False)
 
     # ---- voice ---------------------------------------------------------
     def listen(self):

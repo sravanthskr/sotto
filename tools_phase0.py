@@ -458,3 +458,32 @@ def smart_find(query, folder=""):
         return "Error: semantic search isn't installed yet (needs: pip install fastembed)."
     except Exception as e:
         return f"Error: search failed ({e})."
+
+
+# ---------------------------------------------------------------------------
+# Power, UI navigation & studio tools
+# ---------------------------------------------------------------------------
+@tool(name="lock_pc", description="Lock the Windows workstation immediately.")
+def lock_pc():
+    import sysactions
+    return sysactions.lock_workstation()
+
+
+@tool(name="mute_audio", description="Toggle or mute audio on Windows.")
+def mute_audio():
+    import sysactions
+    return sysactions.mute_volume()
+
+
+@tool(name="open_downloads", description="Open the user's Downloads folder in File Explorer.")
+def open_downloads():
+    from config import DOWNLOADS_DIR
+    os.startfile(str(DOWNLOADS_DIR))
+    return f"Opened {DOWNLOADS_DIR}"
+
+
+@tool(name="take_screenshot_tool", description="Take a screenshot of the main monitor.")
+def take_screenshot_tool():
+    import display
+    path = display.take_screenshot()
+    return f"Screenshot saved to {path}"

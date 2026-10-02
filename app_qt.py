@@ -20,15 +20,25 @@ import time
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QKeySequence, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient, QShortcut)
-from PySide6.QtWidgets import (QApplication, QComboBox, QFrame, QGraphicsOpacityEffect,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect,
                                QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QPushButton,
                                QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
 
 import tools
 import voice
 from audio import MicStream
-from config import API_BASE_URL, MODEL_NAME
+from config import (API_BASE_URL, MODEL_NAME, CONTINUOUS_LISTEN, WAKE_HOTKEY,
+                    WAKE_WORD_ENABLED, WAKE_WORD, OVERLAY_ENABLED)
 from core import Assistant
+
+# ---------------------------------------------------------------- smart-VAD constants
+# Speech detection: we track loudness over time to distinguish a natural
+# mid-sentence pause (< PAUSE_THRESH s) from a real end-of-utterance (>= END_THRESH s).
+_SILENCE_PAUSE = 0.45   # up to this long of silence = still mid-sentence
+_SILENCE_END   = 1.10   # silence longer than this = user finished speaking
+_MIN_SPEECH    = 0.30   # ignore recordings shorter than this (accidental triggers)
+_MAX_RECORD    = 20.0   # safety cap: force-stop after this many seconds
+_SPEAK_THRESH  = 0.05   # RMS level above which we count as "voice active"
 
 # ---------------------------------------------------------------- theme
 BASE_TOP = QColor("#0F0F1A")
@@ -423,10 +433,12 @@ class Window(QMainWindow):
     toast_sig = Signal(str)
     retry_sig = Signal(str)
     done_sig = Signal()
+    wake_sig = Signal()          # emitted from hotkey thread → Qt thread
+    overlay_mode_sig = Signal(str, str)
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("RealAssistant")
+        self.setWindowTitle("Sotto")
         self.resize(980, 760); self.setMinimumSize(760, 620)
         self.assistant = Assistant(on_text=self._on_text, on_tool=self._on_tool,
                                     on_learned=lambda f: None)
@@ -436,6 +448,7 @@ class Window(QMainWindow):
         self._silence_since = None
         self._started = 0.0
         self.history = []
+        self._continuous = CONTINUOUS_LISTEN
         self._build()
         self.mode_sig.connect(self._apply_mode)
         self.transcript_sig.connect(self._set_transcript)
@@ -446,8 +459,25 @@ class Window(QMainWindow):
         self.toast_sig.connect(self.show_toast)
         self.retry_sig.connect(self._schedule_retry)
         self.done_sig.connect(self._flush_speech)
+        self.wake_sig.connect(self._on_wake)
         QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._toggle_visible)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_menu)
+
+        # --- global hotkey (works even when minimised) ---
+        self._init_hotkey()
+
+        # --- overlay ---
+        self._overlay = None
+        if OVERLAY_ENABLED:
+            self._overlay = Overlay(self)
+            self._overlay.wake_sig.connect(self._on_wake)
+            self.overlay_mode_sig.connect(
+                lambda m, t: self._overlay.set_mode(m, t) if self._overlay else None)
+            self._overlay.show()
+
+        # --- wake word background thread ---
+        if WAKE_WORD_ENABLED:
+            threading.Thread(target=self._wake_word_loop, daemon=True).start()
 
     # ------------------------------------------------------ build
     def _build(self):
@@ -522,7 +552,8 @@ class Window(QMainWindow):
         root.addWidget(self.bar)
         self.bar.installEventFilter(self)
 
-        hint = QLabel("hold Space to talk   ·   Ctrl+Space show / hide   ·   Ctrl+K menu")
+        hotkey_text = WAKE_HOTKEY.upper().replace("CTRL", "Ctrl").replace("SHIFT", "Shift").replace("ALT", "Alt")
+        hint = QLabel(f"Space / Mic to talk   ·   {hotkey_text} anywhere   ·   Ctrl+Space show/hide   ·   Ctrl+K menu")
         hint.setAlignment(Qt.AlignCenter)
         hint.setStyleSheet("color:#CFCFD8;font-size:12.5px;")
         root.addWidget(hint)
@@ -599,6 +630,8 @@ class Window(QMainWindow):
         title = QLabel("Settings"); title.setFont(QFont("Segoe UI Variable Display", 20, QFont.DemiBold))
         title.setStyleSheet(f"color:{TEXT};")
         lay.addWidget(title)
+
+        # --- Voice card ---
         card = QFrame(); card.setStyleSheet(f"QFrame{{{GLASS}}}")
         cl = QVBoxLayout(card); cl.setSpacing(10)
         lbl = QLabel("Spoken voice"); lbl.setStyleSheet("color:#C7C7CC;font-size:13px;")
@@ -618,8 +651,97 @@ class Window(QMainWindow):
                             f"QPushButton:hover{{{PILL_HOVER}}}")
         check.clicked.connect(self._check_service)
         cl.addWidget(check, Qt.AlignLeft)
-        lay.addWidget(card); lay.addStretch(1)
+        lay.addWidget(card)
+
+        # --- Hands-free card ---
+        hf_card = QFrame(); hf_card.setStyleSheet(f"QFrame{{{GLASS}}}")
+        hf = QVBoxLayout(hf_card); hf.setSpacing(12)
+        hf_title = QLabel("Hands-free & Listening")
+        hf_title.setFont(QFont("Segoe UI Variable Display", 14, QFont.DemiBold))
+        hf_title.setStyleSheet(f"color:{TEXT};")
+        hf.addWidget(hf_title)
+
+        _chk_style = f"QCheckBox{{color:#DCDCE4;font-size:13px;}} QCheckBox::indicator{{width:18px;height:18px;}}"
+
+        self.chk_continuous = QCheckBox("Continuous listening — auto-listen after each reply")
+        self.chk_continuous.setChecked(CONTINUOUS_LISTEN)
+        self.chk_continuous.setStyleSheet(_chk_style)
+        self.chk_continuous.toggled.connect(lambda v: self._save_toggle("continuous_listen", v))
+        hf.addWidget(self.chk_continuous)
+
+        self.chk_overlay = QCheckBox(f"Show mini overlay when minimised")
+        self.chk_overlay.setChecked(OVERLAY_ENABLED)
+        self.chk_overlay.setStyleSheet(_chk_style)
+        self.chk_overlay.toggled.connect(lambda v: self._save_toggle("overlay_enabled", v))
+        hf.addWidget(self.chk_overlay)
+
+        hotkey_row = QHBoxLayout()
+        hotkey_lbl = QLabel(f"Global wake hotkey:")
+        hotkey_lbl.setStyleSheet("color:#C7C7CC;font-size:13px;")
+        hotkey_row.addWidget(hotkey_lbl)
+        self.hotkey_edit = QLineEdit(WAKE_HOTKEY)
+        self.hotkey_edit.setFixedWidth(160)
+        self.hotkey_edit.setStyleSheet("QLineEdit{background:rgba(255,255,255,0.06);color:#FAFAFA;"
+                                       f"border:1px solid {BORDER};border-radius:10px;padding:5px 10px;}}")
+        self.hotkey_edit.editingFinished.connect(self._save_hotkey)
+        hotkey_row.addWidget(self.hotkey_edit)
+        hotkey_row.addStretch(1)
+        hf.addLayout(hotkey_row)
+
+        self.chk_wake_word = QCheckBox(f"Wake word activation (says \'{WAKE_WORD}\' to activate)")
+        self.chk_wake_word.setChecked(WAKE_WORD_ENABLED)
+        self.chk_wake_word.setStyleSheet(_chk_style)
+        self.chk_wake_word.toggled.connect(lambda v: self._save_toggle("wake_word_enabled", v))
+        hf.addWidget(self.chk_wake_word)
+        wake_note = QLabel("Wake word uses extra CPU. Restart the app after changing.")
+        wake_note.setStyleSheet("color:#6B6B7A;font-size:11.5px;font-style:italic;")
+        hf.addWidget(wake_note)
+
+        lay.addWidget(hf_card)
+
+        # --- Setup / API Keys card ---
+        setup_card = QFrame(); setup_card.setStyleSheet(f"QFrame{{{GLASS}}}")
+        sc2 = QVBoxLayout(setup_card); sc2.setSpacing(10)
+        sc2_title = QLabel("Setup & API Keys")
+        sc2_title.setFont(QFont("Segoe UI Variable Display", 14, QFont.DemiBold))
+        sc2_title.setStyleSheet(f"color:{TEXT};")
+        sc2.addWidget(sc2_title)
+        sc2.addWidget(QLabel(
+            "Change your AI provider key, re-run the setup wizard, or check what's connected."
+        ) if False else (lambda l: (
+            l.setStyleSheet("color:#C7C7CC;font-size:13px;"),
+            l.setWordWrap(True), l)[2])(
+            QLabel("Change your AI provider key, re-run the setup wizard, "
+                   "or check what Sotto is connected to.")))
+        btn_row = QHBoxLayout(); btn_row.setSpacing(10)
+        setup_btn = QPushButton("Run setup wizard")
+        setup_btn.setCursor(Qt.PointingHandCursor)
+        setup_btn.setStyleSheet(f"QPushButton{{{PILL} color:#EDEDF3; padding:9px 18px;}}"
+                                f"QPushButton:hover{{{PILL_HOVER}}}")
+        setup_btn.clicked.connect(self._open_setup_wizard)
+        btn_row.addWidget(setup_btn)
+        key_btn = QPushButton("Change AI key")
+        key_btn.setCursor(Qt.PointingHandCursor)
+        key_btn.setStyleSheet(f"QPushButton{{{PILL} color:#EDEDF3; padding:9px 18px;}}"
+                              f"QPushButton:hover{{{PILL_HOVER}}}")
+        key_btn.clicked.connect(self._open_setup_wizard)
+        btn_row.addWidget(key_btn)
+        btn_row.addStretch(1)
+        sc2.addLayout(btn_row)
+        lay.addWidget(setup_card)
+
+        lay.addStretch(1)
         return page
+
+    def _open_setup_wizard(self):
+        import onboarding
+        # temporarily delete the flag so wizard shows again
+        try:
+            onboarding._FLAG.unlink(missing_ok=True)
+        except Exception:
+            pass
+        wizard = onboarding.OnboardingWizard()
+        wizard.show()
 
     def _conversation(self):
         page = Background(); lay = QVBoxLayout(page); lay.setContentsMargins(80, 24, 80, 24)
@@ -692,7 +814,21 @@ class Window(QMainWindow):
         for label, idx in (("Home", 0), ("Tasks", 1), ("Insights", 2),
                            ("Settings", 3), ("Conversation", 4)):
             menu.addAction(label, lambda i=idx: self._goto(i))
+        menu.addSeparator()
+        menu.addAction("🎨 Image Workbench / AI Studio", self._open_image_workbench)
+        menu.addAction("📝 Quick Notes & AI Scratchpad", self._open_quick_notes)
         menu.exec(self.menu_btn.mapToGlobal(self.menu_btn.rect().bottomLeft()))
+
+    def _open_image_workbench(self):
+        from image_workbench import ImageWorkbench
+        dlg = ImageWorkbench(self)
+        dlg.exec()
+
+    def _open_quick_notes(self):
+        from quick_notes import QuickNotesWidget
+        dlg = QuickNotesWidget(self)
+        dlg.show()
+
 
     def _goto(self, idx):
         self.stack.setCurrentIndex(idx)
@@ -761,7 +897,42 @@ class Window(QMainWindow):
         if not text:
             return
         self.entry.clear()
+        
+        # --- Local fast command / voice navigation interception ---
+        cmd = text.lower().strip()
+        if cmd in ("open settings", "go to settings", "show settings", "settings"):
+            self._goto(3)
+            return
+        elif cmd in ("open tasks", "go to tasks", "show tasks", "tasks"):
+            self._goto(1)
+            return
+        elif cmd in ("open insights", "go to insights", "show insights", "insights"):
+            self._goto(2)
+            return
+        elif cmd in ("open home", "go home", "home"):
+            self._goto(0)
+            return
+        elif cmd in ("open notes", "quick notes", "scratchpad", "open scratchpad"):
+            self._open_quick_notes()
+            return
+        elif cmd in ("open studio", "open workbench", "image workbench", "image studio"):
+            self._open_image_workbench()
+            return
+        elif cmd in ("toggle overlay", "overlay mode", "mini mode"):
+            if self._overlay:
+                self._overlay.setVisible(not self._overlay.isVisible())
+            return
+        elif cmd in ("lock pc", "lock computer", "lock screen"):
+            import sysactions
+            sysactions.lock_workstation()
+            return
+        elif cmd in ("mute", "unmute", "mute audio", "toggle mute"):
+            import sysactions
+            sysactions.mute_volume()
+            return
+
         threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
+
 
     def _run_turn(self, text):
         self._last_text = text
@@ -828,7 +999,24 @@ class Window(QMainWindow):
             voice.say(rest)
         self._pending = ""
         ms = min(14000, max(1200, int(getattr(self, "_reply_len", 60) * 55)))
-        QTimer.singleShot(ms, lambda: self.mode_sig.emit("idle", ""))
+        if self._continuous:
+            # after speaking finishes, automatically start listening again
+            QTimer.singleShot(ms, self._auto_relisten)
+        else:
+            QTimer.singleShot(ms, lambda: self.mode_sig.emit("idle", ""))
+
+    def _auto_relisten(self):
+        """Silently restart listening after a reply, if continuous mode is on."""
+        if self.mode not in ("idle", "speaking"):
+            return  # user may have started typing / another task running
+        # small extra gap so TTS finishes before mic opens
+        QTimer.singleShot(300, self._do_auto_relisten)
+
+    def _do_auto_relisten(self):
+        if self.mode not in ("idle", "speaking"):
+            return
+        self.mode_sig.emit("idle", "")
+        QTimer.singleShot(200, lambda: self._start_listening() if self.mode == "idle" else None)
 
     def _set_reply(self, text):
         if not self.reply_label.text().strip():
@@ -845,8 +1033,8 @@ class Window(QMainWindow):
     # ------------------------------------------------------ voice
     def toggle_talk(self):
         if self.mode == "listening":
-            self._finish_listening()
-        elif self.mode in ("idle", "error"):
+            self._finish_listening(force=True)
+        elif self.mode in ("idle", "speaking", "error"):
             self._start_listening()
 
     def _start_listening(self):
@@ -858,31 +1046,57 @@ class Window(QMainWindow):
         threading.Thread(target=self._pump, daemon=True).start()
 
     def _pump(self):
+        """Smart-VAD loop: distinguishes mid-sentence pauses from real end-of-speech."""
+        _speech_seen = False          # have we heard actual voice yet?
+        _silence_start = None         # when the last silence segment began
         while self.mode == "listening":
-            time.sleep(0.06)
+            time.sleep(0.05)
             if self.mic is None:
                 return
             if self.mic.error:
                 self.mode_sig.emit("idle", "")
                 self.reply_label.setText(f"⚠ microphone: {self.mic.error}")
                 return
-            self.level_sig.emit(self.mic.level)
+            lvl = self.mic.level
+            self.level_sig.emit(lvl)
             now = time.time()
-            if self.mic.level > 0.06:
-                self._silence_since = None
-            elif self._silence_since is None:
-                self._silence_since = now
-            elif now - self._silence_since > 0.75:
-                self._finish_listening(); return
-            if now - self._started > 12:
+
+            # track whether any real speech has been heard at all
+            if lvl > _SPEAK_THRESH:
+                _speech_seen = True
+                _silence_start = None
+            else:
+                if _silence_start is None:
+                    _silence_start = now
+
+            elapsed = now - self._started
+
+            # safety cap
+            if elapsed > _MAX_RECORD:
                 self._finish_listening(); return
 
-    def _finish_listening(self):
+            # if we heard speech and silence has gone long enough, done
+            if _speech_seen and _silence_start is not None:
+                sil = now - _silence_start
+                if sil >= _SILENCE_END:
+                    self._finish_listening(); return
+
+            # if no speech at all within 6 s, give up (nothing to send)
+            if not _speech_seen and elapsed > 6.0:
+                self._finish_listening(empty=True); return
+
+    def _finish_listening(self, force=False, empty=False):
         mic, self.mic = self.mic, None
-        self.transcript_sig.emit("…")
-        self.mode_sig.emit("processing", "")
         if mic is None:
             return
+        if empty and not force:
+            # nothing was said — go back to idle quietly
+            mic.stop()
+            self.mode_sig.emit("idle", "")
+            self.transcript_sig.emit("")
+            return
+        self.transcript_sig.emit("…")
+        self.mode_sig.emit("processing", "")
         wav = mic.stop()
         threading.Thread(target=self._transcribe, args=(wav,), daemon=True).start()
 
@@ -906,9 +1120,15 @@ class Window(QMainWindow):
         if mode in ("listening", "processing"):
             self.reply_label.setText("")
         self._set_visibility(mode, hint)
+        # update overlay
+        if self._overlay is not None:
+            self.overlay_mode_sig.emit(mode, hint)
 
     def _toggle_visible(self):
-        self.hide() if self.isVisible() else self.show()
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show(); self.raise_(); self.activateWindow()
 
     def _set_voice(self, name):
         from config import save_setting
@@ -931,9 +1151,178 @@ class Window(QMainWindow):
     def _on_tool(self, name, args, result):
         pass
 
+    # ------------------------------------------------------ settings helpers
+    def _save_toggle(self, key, value):
+        from config import save_setting
+        save_setting(key, value)
+        if key == "continuous_listen":
+            self._continuous = value
+
+    def _save_hotkey(self):
+        new_key = self.hotkey_edit.text().strip().lower()
+        if new_key:
+            from config import save_setting
+            save_setting("wake_hotkey", new_key)
+            self._rebind_hotkey(new_key)
+
+    def _rebind_hotkey(self, hotkey):
+        try:
+            import keyboard as _kb
+            _kb.unhook_all_hotkeys()
+            _kb.add_hotkey(hotkey, self._global_wake, suppress=False)
+        except Exception:
+            pass
+
+    def _global_wake(self):
+        """Called from the global hotkey thread — emit a signal to work on the Qt thread."""
+        self.wake_sig.emit()
+
+    def _on_wake(self):
+        """Qt-thread slot for wake hotkey / wake word."""
+        if not self.isVisible():
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        if self.mode == "idle":
+            self._start_listening()
+        elif self.mode == "listening":
+            self._finish_listening(force=True)
+
+    def _init_hotkey(self):
+        """Register the global hotkey so it works even when the window is minimised."""
+        try:
+            import keyboard as _kb
+            _kb.add_hotkey(WAKE_HOTKEY, self._global_wake, suppress=False)
+        except Exception as e:
+            print(f"[hotkey] could not bind '{WAKE_HOTKEY}': {e}")
+
+    def _wake_word_loop(self):
+        """Background thread: listen for the wake word using faster-whisper snippets."""
+        import tempfile, pathlib
+        from voice import transcribe_wav, stt_ready
+        if not stt_ready():
+            print("[wake-word] STT not ready, wake word disabled")
+            return
+        kw = WAKE_WORD.lower().strip()
+        print(f"[wake-word] listening for '{kw}'")
+        while True:
+            # record 2-second chunks and check for the wake word
+            tmp = pathlib.Path(tempfile.gettempdir()) / "sotto_wake.wav"
+            try:
+                from voice import record_wav
+                ok, _lvl, _err = record_wav(str(tmp), seconds=2)
+                if not ok:
+                    time.sleep(1); continue
+                text, _err = transcribe_wav(str(tmp))
+                if text and kw in text.lower():
+                    print(f"[wake-word] heard: {text!r}")
+                    self.wake_sig.emit()
+                    time.sleep(2)  # cool-off
+            except Exception:
+                time.sleep(1)
+
+
+# ================================================================ overlay widget
+class Overlay(QWidget):
+    """
+    A small always-on-top, translucent pill that floats on screen and shows
+    Sotto's current state. Click the mic icon to activate, drag to reposition,
+    double-click to open the main window. Stays visible when minimised.
+    """
+    wake_sig = Signal()
+
+    def __init__(self, main_win):
+        super().__init__(None, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.main_win = main_win
+        self._drag_pos = None
+        self._mode = "idle"
+        self._phase = 0.0
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 8, 14, 8)
+        lay.setSpacing(8)
+
+        self._dot = QLabel("●")
+        self._dot.setStyleSheet("color:#8B5CF6;font-size:12px;")
+        lay.addWidget(self._dot)
+
+        self._lbl = QLabel("Sotto · idle")
+        self._lbl.setStyleSheet("color:#EDEDF3;font-size:13px;font-family:'Segoe UI Variable Text';")
+        lay.addWidget(self._lbl)
+
+        self._mic_btn = QPushButton("🎤")
+        self._mic_btn.setFixedSize(28, 28)
+        self._mic_btn.setStyleSheet("QPushButton{background:rgba(139,92,246,0.20);border:1px solid "
+                                    "rgba(139,92,246,0.40);border-radius:14px;color:#fff;font-size:13px;}"
+                                    "QPushButton:hover{background:rgba(139,92,246,0.45);}")
+        self._mic_btn.clicked.connect(self.wake_sig.emit)
+        lay.addWidget(self._mic_btn)
+
+        self.setFixedHeight(46)
+        self.adjustSize()
+
+        # Position: bottom-right, above taskbar
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.move(screen.right() - self.width() - 18, screen.bottom() - self.height() - 12)
+
+        # Animate phase
+        t = QTimer(self)
+        t.timeout.connect(self._tick)
+        t.start(50)
+
+    def _tick(self):
+        self._phase = (self._phase + 0.06) % (2 * math.pi)
+        self.update()
+
+    def set_mode(self, mode, text=""):
+        self._mode = mode
+        colours = {"idle": "#8B5CF6", "listening": "#22D3EE",
+                   "processing": "#F59E0B", "speaking": "#34D399"}
+        col = colours.get(mode, "#8B5CF6")
+        self._dot.setStyleSheet(f"color:{col};font-size:12px;")
+        labels = {"idle": "Sotto · idle", "listening": "Listening…",
+                  "processing": "Thinking…", "speaking": "Speaking…"}
+        self._lbl.setText(text or labels.get(mode, "Sotto"))
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        pulse = 0.0
+        if self._mode == "listening":
+            pulse = 0.08 * math.sin(self._phase * 3)
+        bg = QColor(15, 15, 26, int(220 + pulse * 30))
+        p.setPen(QPen(QColor(139, 92, 246, 80), 1.2))
+        p.setBrush(QBrush(bg))
+        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 23, 23)
+        p.end()
+
+    # Drag to reposition
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, e):
+        if self._drag_pos is not None and e.buttons() & Qt.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._drag_pos)
+
+    def mouseReleaseEvent(self, e):
+        self._drag_pos = None
+
+    def mouseDoubleClickEvent(self, _e):
+        self.main_win.show()
+        self.main_win.raise_()
+        self.main_win.activateWindow()
+
 
 def main():
     app = QApplication(sys.argv)
+
+    # ── first-run onboarding wizard (shows if no API key / first launch)
+    import onboarding
+    onboarding.run_if_needed(app)
+
     win = Window()
     voice.warm()
     win.assistant.start(); win.assistant.start_watcher(); win.show()

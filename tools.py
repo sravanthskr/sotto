@@ -338,7 +338,7 @@ def open_website(url):
 
 @tool(
     name="search_web",
-    description="Search the web or specific services (e.g. YouTube, Wikipedia, Reddit, Amazon, GitHub).",
+    description="Open search results in a browser tab for specific platforms (YouTube, Wikipedia, Reddit, Amazon, GitHub). NEVER use this for answering questions, looking up facts, or getting news - use get_news or look_up instead.",
     parameters={
         "type": "object",
         "properties": {
@@ -351,9 +351,15 @@ def open_website(url):
 def search_web(query, site=""):
     q = (query or "").strip()
     s = (site or "").lower().strip()
-    if s == "youtube" or "youtube" in q.lower():
-        clean_q = re.sub(r"(?i)\b(on\s+)?youtube\b", "", q).strip()
-        url = "https://www.youtube.com/results?search_query=" + quote_plus(clean_q or q)
+    q_low = q.lower()
+    
+    # Direct YouTube routing if YouTube, playing, or video is mentioned
+    if s == "youtube" or "youtube" in q_low or q_low.startswith("play ") or "play a song" in q_low or "play video" in q_low:
+        clean_q = re.sub(r"(?i)\b(open\s+)?(youtube\s+and\s+play|on\s+youtube|youtube|play|search\s+for|search)\b", "", q).strip()
+        target = clean_q or q
+        url = "https://www.youtube.com/results?search_query=" + quote_plus(target) if target else "https://www.youtube.com"
+        webbrowser.open(url)
+        return f"Opened YouTube search for '{target}'." if target else "Opened YouTube."
     elif s in ("wiki", "wikipedia"):
         url = "https://en.wikipedia.org/wiki/Special:Search?search=" + quote_plus(q)
     elif s == "reddit":
@@ -371,7 +377,7 @@ def search_web(query, site=""):
 
 @tool(
     name="play_media",
-    description="Play a song, video, artist, or music track directly on YouTube or Spotify.",
+    description="Play a song, video, artist, or music track directly on YouTube or Spotify. Always call this when user asks to play music, videos, songs, or open YouTube for a song.",
     parameters={
         "type": "object",
         "properties": {
@@ -384,19 +390,14 @@ def search_web(query, site=""):
 def play_media(query, service="youtube"):
     q = (query or "").strip()
     srv = (service or "youtube").lower().strip()
-    clean_q = re.sub(r"(?i)\b(play|on\s+youtube|on\s+spotify|youtube|spotify)\b", "", q).strip()
+    clean_q = re.sub(r"(?i)\b(open\s+youtube\s+and\s+play|play|on\s+youtube|on\s+spotify|youtube|spotify)\b", "", q).strip()
     target_q = clean_q or q
 
     if srv == "spotify":
-        # Check if spotify is running or installed
-        target = resolve_app("spotify")
-        if target:
-            webbrowser.open("https://open.spotify.com/search/" + quote_plus(target_q))
-        else:
-            webbrowser.open("https://open.spotify.com/search/" + quote_plus(target_q))
+        webbrowser.open("https://open.spotify.com/search/" + quote_plus(target_q))
         return f"Playing '{target_q}' on Spotify."
     else:
-        url = "https://www.youtube.com/results?search_query=" + quote_plus(target_q)
+        url = "https://www.youtube.com/results?search_query=" + quote_plus(target_q) if target_q else "https://www.youtube.com"
         webbrowser.open(url)
         return f"Playing '{target_q}' on YouTube."
 
@@ -893,9 +894,79 @@ def delete_path(path):
 # Web answers
 # ---------------------------------------------------------------------------
 @tool(
+    name="get_news",
+    description="Get the latest top news headlines or news on a specific topic without opening a browser window. ALWAYS use this when the user asks for news, headlines, current events, or news updates.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string", "description": "Optional topic or query, e.g. 'technology', 'sports', 'India', 'AI'. Leave empty for general top news."}
+        },
+        "required": [],
+    },
+)
+def get_news(topic=""):
+    q = (topic or "").strip()
+    query = f"{q} news" if q and "news" not in q.lower() else (q or "latest news top headlines")
+    
+    results = []
+    # Attempt 1: DDGS news search
+    try:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
+        with DDGS() as d:
+            news_items = list(d.news(query, max_results=5))
+            for item in news_items:
+                title = item.get("title", "").strip()
+                body = item.get("body", "").strip()
+                source = item.get("source", "").strip()
+                if title:
+                    src_str = f" [{source}]" if source else ""
+                    results.append(f"• {title}{src_str}: {body}".strip() if body else f"• {title}{src_str}")
+    except Exception:
+        results = []
+
+    # Attempt 2: Google News RSS fallback
+    if not results:
+        try:
+            import urllib.request
+            import xml.etree.ElementTree as ET
+            from urllib.parse import quote_plus
+            
+            rss_url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en" if q else "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+            req = urllib.request.Request(rss_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                xml_data = resp.read()
+            root = ET.fromstring(xml_data)
+            items = root.findall(".//item")[:5]
+            for item in items:
+                title = item.findtext("title", "").strip()
+                pub_date = item.findtext("pubDate", "").strip()
+                if title:
+                    results.append(f"• {title}" + (f" ({pub_date})" if pub_date else ""))
+        except Exception:
+            pass
+
+    # Attempt 3: look_up fallback
+    if not results:
+        try:
+            res_str = look_up(query)
+            if res_str and not res_str.startswith("Error") and not res_str.startswith("No results"):
+                return res_str
+        except Exception:
+            pass
+
+    if not results:
+        return f"Couldn't fetch news for '{q or 'latest news'}'. Please check your internet connection."
+        
+    return "\n".join(results[:5])
+
+
+@tool(
     name="look_up",
-    description=("Search the web and read back a short summary of the top results. Use this "
-                 "to answer questions that need current information."),
+    description=("Search the web silently in the background and read back a short summary of the top results. Use this "
+                 "to answer questions that need current information without opening any browser window."),
     parameters={"type": "object", "properties": {
         "query": {"type": "string", "description": "What to look up."}},
         "required": ["query"]},

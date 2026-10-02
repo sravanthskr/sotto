@@ -29,6 +29,7 @@ def main():
         min_size=(900, 600),
         background_color="#F6F7F6",
     )
+    api.set_window(window)
     try:
         api.start()
     except Exception:

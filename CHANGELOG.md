@@ -2,6 +2,18 @@
 
 All notable changes to Sotto are recorded in this file.
 
+## [1.1.0] - 2026-10-02
+
+### Added
+- Voice lock (opt-in): lock Sotto at startup behind a spoken passphrase, with a fallback text password.
+- "Forgot passphrase?" on the lock screen: reset or remove a forgotten lock by verifying with the Windows sign-in (Hello / PIN / password). Nothing is deleted.
+- First-run onboarding wizard: AI key setup, permissions overview, and a mic check.
+- Hands-free options: continuous listening, wake hotkey (Ctrl+Shift+S), an optional wake word, and a small status overlay.
+- Quick notes and local image tools.
+
+### Fixed
+- The voice lock could appear at startup even when it was never enabled. The lock now only ever shows for a fully configured, user-enabled lock - and the app fails open (never locks) if the lock state cannot be read.
+
 ## [Unreleased]
 
 *See the Roadmap section of the [README](README.md) for what's being worked on.*
