@@ -98,7 +98,21 @@ def _set_foreground(hwnd):
 
 
 
+_SINGLE_MUTEX = None
+
+
 def main():
+    # Single instance: never run two Sotto apps at once.
+    global _SINGLE_MUTEX
+    try:
+        _SINGLE_MUTEX = ctypes.windll.kernel32.CreateMutexW(
+            None, False, "Local\\SottoAppSingleInstance")
+        if _SINGLE_MUTEX and ctypes.windll.kernel32.GetLastError() == 183:
+            print("Sotto is already running.")
+            sys.exit(0)
+    except Exception:
+        pass
+
     IPC_DIR.mkdir(parents=True, exist_ok=True)
     # Clear stale IPC files
     for f in (STATE_FILE, SIG_FILE):
