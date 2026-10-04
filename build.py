@@ -9,6 +9,7 @@ The result is dist/RealAssistant.exe. Put your .env file next to the .exe when y
 run it (the app reads the key from the working directory).
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -42,6 +43,9 @@ def main():
         "--noconfirm", "--clean", "--onefile",
         "--name", "RealAssistant",
         "--console",
+        # exe icon + bundle the icon assets so the running app can set its window icon
+        "--icon", str(ROOT / "assets" / "icon" / "sotto.ico"),
+        "--add-data", f"{ROOT / 'assets' / 'icon'}{os.pathsep}assets/icon",
     ]
     for module in HIDDEN_IMPORTS:
         args += ["--hidden-import", module]

@@ -104,6 +104,11 @@
     const k = level > shown ? dt / env.atk : dt / env.rel;
     shown += Math.max(-1, Math.min(1, k)) * (level - shown);
     presence.style.setProperty('--lvl', shown.toFixed(3));
+    const ph = $('#pillHalo');
+    if (ph && body.classList.contains('pillmode')) {
+      ph.style.opacity = state === 'listening' ? (0.2 + shown * 0.7).toFixed(2) : '0';
+      ph.style.transform = 'scale(' + (1 + shown * 0.45).toFixed(2) + ')';
+    }
 
     const W = canvas.width / (Math.min(window.devicePixelRatio || 1, 2));
     const H = 120, mid = H / 2, pad = W * 0.06;
@@ -186,11 +191,12 @@
     if (state === next) return;
     state = next; stateSince = performance.now();
     body.dataset.state = next;
-  try { var _ms = document.getElementById('miniStatus'); if (_ms) { var _mm = {listening:'Listening', thinking:'Thinking', acting:'Working', speaking:'Speaking', responding:'Replying', waiting:'Waiting', idle:'Ready'}; _ms.textContent = _mm[next] || next; } } catch (e) {}
     if (HINT[next] !== undefined) $('#hint').textContent = HINT[next];
     else if (next !== 'responding') $('#hint').textContent = LABEL[next] || '';
     else $('#hint').textContent = '';
     $('#sr').textContent = LABEL[next] || next;
+    const ps = $('#pillStatus');
+    if (ps) ps.textContent = LABEL[next] || next;
   }
   function setMode(next) { mode = next; body.dataset.mode = next; }
 
@@ -262,6 +268,47 @@
     toastTimer = setTimeout(() => $('#toast').classList.remove('show'), ms);
   }
 
+  /* keeps both overlay switches (Settings sheet + quick menu) in sync */
+  let overlayOn = true;
+  function setOverlayUI(on) {
+    overlayOn = !!on;
+    ['#overlaySwitch', '#overlaySwitchQ'].forEach(sel => {
+      const el = $(sel);
+      if (el) el.setAttribute('aria-pressed', String(on));
+    });
+  }
+
+  /* ---- floating pill: when you leave Sotto, its own window shrinks to a
+     pill that floats above everything. Exposed on window because the Python
+     visibility controller drives it via evaluate_js. ---- */
+  let pillSuppressUntil = 0;
+  let pillEnterHoldUntil = 0;
+  function setPillMode(on) {
+    body.classList.toggle('pillmode', on);
+    const pb = $('#pillBar');
+    if (pb) pb.setAttribute('aria-hidden', on ? 'false' : 'true');
+  }
+  window.enterPillMode = () => { setPillMode(true); return true; };
+  window.exitPillMode = () => { setPillMode(false); return true; };
+  window.pillActive = () => body.classList.contains('pillmode');
+  window.pillHold = (ms) => { pillEnterHoldUntil = Date.now() + ms; return true; };
+  /* Coming back to Sotto (Alt-Tab, taskbar) restores the full window - but a
+     tap on the orb also focuses it, and that must NOT restore. The orb sets a
+     short suppression window in its pointerdown, which fires before focus.
+     The enter-hold swallows the focus event Windows sends right after the
+     window is re-framed into the pill. */
+  window.addEventListener('focus', () => {
+    if (!body.classList.contains('pillmode')) return;
+    const now = Date.now();
+    if (now < pillSuppressUntil || now < pillEnterHoldUntil) return;
+    window.__pillWantExit = true;
+  });
+  window.pillWantExit = () => {
+    const v = !!window.__pillWantExit;
+    window.__pillWantExit = false;
+    return v;
+  };
+
   /* --------------------------------------------------------- theme */
   const SUN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"/></svg>';
   const MOON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.5 8.5 0 1 0 10.2 10.2z"/></svg>';
@@ -276,6 +323,7 @@
     $('#btnTheme').setAttribute('aria-label', resolved === 'light' ? 'Switch to dark theme' : 'Switch to light theme');
     $$('#segThemeQuick button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === pref)));
     try { localStorage.setItem('sotto-theme-v2', pref); } catch {}
+    try { const _b = bridge(); if (_b && hasApi('set_theme')) _b.set_theme(resolved); } catch (e) {}
     sizeCanvas();
     if (notify) toast(resolved === 'light' ? 'Light theme — morning paper' : 'Dark theme', 'THEME', 1800);
   }
@@ -546,11 +594,45 @@
   let speakingFallback = null;
   function speakFallbackTimer(text, factor = 1) { clearTimeout(speakingFallback); speakingFallback = setTimeout(endSpeech, Math.min(45000, 1200 + String(text || '').length * 62 * factor)); }
 
+  /* -------------------------------------------------- automatic activation
+     The bridge pushes 'hotkey' (Ctrl+Space anywhere) and 'wake' (wake word)
+     events. A lightweight idle poller consumes them even when no chat turn
+     is running, so the assistant activates by itself - no clicking. While a
+     turn is active its own poller owns the queue; anything the idle poller
+     grabs mid-turn is handed over via `spillover`. */
+  let turnActive = false;
+  const spillover = [];
+
+  function handleActivation(e) {
+    if (isAppLocked) return;
+    if (e && e.ts && (Date.now() / 1000 - e.ts) > 5) return;  // stale press, ignore
+    if (turnActive) return;                                    // mid-turn: ignore
+    const rest = String((e && e.rest) || '').trim();
+    if (rest.length > 1) { send(rest, true); return; }         // "hey sotto, open notepad"
+    if (speaking) {
+      stopSpeaking(true);                                      // voice interrupt
+      if (e && e.type === 'wake') setTimeout(() => { if (!listening && !turnActive && state !== 'listening') startListening(); }, 400);
+      return;
+    }
+    if (!listening && (state === 'idle' || state === 'ready')) startListening();
+  }
+
+  async function idlePoll() {
+    if (turnActive) return;
+    const api = bridge();
+    if (!api || !hasApi('poll')) return;
+    let events = [];
+    try { events = JSON.parse((await api.poll()) || '[]'); } catch { return; }
+    if (!events.length) return;
+    if (turnActive) { spillover.push(...events); return; }     // a turn started mid-await
+    for (const e of events) {
+      if (e.type === 'hotkey' || e.type === 'wake') handleActivation(e);
+      else if (e.type === 'ov_stop') { try { if (listening) stopListening(); } catch (err) {} }
+    }
+  }
+  setInterval(idlePoll, 350);
+
   async function send(text, viaVoice = false, isRetry = false) {
-  // Mini overlay controls by phrase
-  const _mt = String(text || '').trim().toLowerCase();
-  if (_mt === 'mini mode' || _mt === 'overlay mode' || _mt === 'mini') { if (typeof setMiniMode === 'function') setMiniMode(true); return; }
-  if (_mt === 'full mode' || _mt === 'expand' || _mt === 'back to full') { if (typeof setMiniMode === 'function') setMiniMode(false); return; }
     text = (text || '').trim();
     if (!text) return;
     if (!isRetry) retries = 0;
@@ -569,9 +651,11 @@
     const voice = addVoice(turn);
     turn.querySelector('.thinking')?.remove();
     let said = false;
+    turnActive = true;
     const poll = setInterval(async () => {
       let events = [];
       try { events = JSON.parse((await api.poll()) || '[]'); } catch {}
+      if (spillover.length) { events = spillover.concat(events); spillover.length = 0; }
       if (events.length) callIf('log', 'poll: ' + events.map((x) => x.type).join(','));
       for (const e of events) {
         if (e.type === 'intent' && e.text) { intentChip.querySelector('.chip').innerHTML = '<span class="dot"></span>' + escapeHtml(e.text); }
@@ -611,7 +695,8 @@
         }
         else if (e.type === 'speak_only') { speakOut(e.text, { rate: e.rate }); toast(e.rate && e.rate < 1 ? 'Slower' : 'Again', 'VOICE', 1400); }
         else if (e.type === 'learned') { /* quiet */ }
-    else if (e.type === 'hotkey') { if (document.body.classList.contains('mini') && typeof setMiniMode === 'function') setMiniMode(false); }
+        else if (e.type === 'hotkey' || e.type === 'wake') { handleActivation(e); }
+    else if (e.type === 'ov_stop') { try { if (listening) stopListening(); } catch (err) {} }
         else if (e.type === 'done') {
           callIf('log', 'done');
           retries = 0;
@@ -646,6 +731,7 @@
       if (!busy && events.length === 0) {
         callIf('log', 'settle busy=false');
         clearInterval(poll);
+        turnActive = false;
         if (state === 'thinking' || state === 'understanding') setState('responding');
         setTimeout(() => {
           if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
@@ -1087,6 +1173,8 @@
         }
         if (info.version) $('#aboutLine').textContent = 'Sotto · ' + info.version;
         if (info.apps) $('#scanCount').textContent = info.apps + ' apps ready — rescan anytime';
+        if (info.wake_enabled) { const ws = $('#wakeSwitch'); if (ws) ws.setAttribute('aria-pressed', 'true'); }
+        if (info.overlay_enabled === false) setOverlayUI(false);
         refreshAccounts();
         checkAppLock();
         if (info.scan_needed) {
@@ -1247,6 +1335,17 @@
       e.currentTarget.setAttribute('aria-pressed', String(on));
       callIf('set_wake', on);
       toast(on ? 'Wake word on' : 'Wake word off', 'VOICE', 1800);
+    });
+    /* floating overlay pill: one switch in Settings, one in the quick menu */
+    ['#overlaySwitch', '#overlaySwitchQ'].forEach(sel => {
+      const el = $(sel);
+      if (!el) return;
+      el.addEventListener('click', () => {
+        const on = el.getAttribute('aria-pressed') !== 'true';
+        setOverlayUI(on);
+        callIf('set_overlay', on);
+        toast(on ? 'Overlay on — I float over other apps' : 'Overlay off — background only', 'SETTING', 2200);
+      });
     });
     $$('#segThemeQuick button').forEach(b => b.addEventListener('click', () => applyThemePref(b.dataset.themeSet)));
     $('#motionSwitch').addEventListener('click', (e) => {
@@ -1413,20 +1512,21 @@
       });
     }
 
-    // ---- mini overlay (floating bar) ----
-    async function setMiniMode(on) {
-      const api = bridge();
-      if (api && hasApi('set_window_mode')) {
-        try { await api.set_window_mode(on ? 'mini' : 'full'); } catch {}
-      }
-      document.body.classList.toggle('mini', !!on);
-    }
+    // ---- send to background: the floating pill takes over visually ----
     const btnMini = $('#btnMini');
-    if (btnMini) btnMini.addEventListener('click', () => setMiniMode(true));
-    const miniExpandEl = $('#miniExpand');
-    if (miniExpandEl) miniExpandEl.addEventListener('click', () => setMiniMode(false));
-    const miniOrbEl = $('#miniOrb');
-    if (miniOrbEl) miniOrbEl.addEventListener('click', () => { if (typeof toggleTalk === 'function') toggleTalk(); });
+    if (btnMini) btnMini.addEventListener('click', () => {
+      if (overlayOn) callIf('request_pill_enter');
+      else callIf('hide_main');
+    });
+
+    // ---- pill controls ----
+    const pillOrb = $('#pillOrb');
+    if (pillOrb) {
+      pillOrb.addEventListener('pointerdown', () => { pillSuppressUntil = Date.now() + 1200; });
+      pillOrb.addEventListener('click', () => { callIf('overlay_tap'); });
+    }
+    const pillExpand = $('#pillExpand');
+    if (pillExpand) pillExpand.addEventListener('click', () => { callIf('request_pill_exit'); });
 
     $('#btnSend').addEventListener('click', () => { const v = $('#typeInput').value; $('#typeInput').value = ''; setTyping(false); send(v); });
     $('#typeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; setTyping(false); send(v); } });

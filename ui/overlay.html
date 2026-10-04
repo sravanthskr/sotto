@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sotto Overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="sotto-tokens.css">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--ov-bg);overflow:hidden;
+    font-family:var(--font-ui,"Segoe UI",sans-serif);-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+  body{opacity:1;transition:opacity .22s ease}
+  body.bye{opacity:0}
+
+  html[data-theme="light"]{--ov-bg:#FFFFFF;--ov-line:rgba(23,28,33,.14);--ov-hi:inset 0 0 0 1px rgba(23,28,33,.10), inset 0 1px 0 rgba(255,255,255,.6);}
+  html[data-theme="dark"]{--ov-bg:#191D22;--ov-line:rgba(226,232,240,.14);--ov-hi:inset 0 0 0 1px rgba(226,232,240,.12), inset 0 1px 0 rgba(255,255,255,.04);}
+
+  #wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:0}
+  #pill{display:flex;align-items:center;gap:11px;width:100%;height:100%;
+    padding:0 16px 0 11px;background:var(--ov-bg);
+    box-shadow:var(--ov-hi)}
+  #pill.anim{animation:enter .26s cubic-bezier(.3,.6,.25,1) both}
+  @keyframes enter{from{opacity:0}to{opacity:1}}
+
+  #orb{width:34px;height:34px;flex:0 0 auto;border-radius:50%;border:1px solid var(--ov-line);
+    background:transparent;position:relative;cursor:pointer;display:grid;place-items:center;padding:0}
+  #orb i{width:10px;height:10px;border-radius:50%;background:var(--ink-3);transition:background .3s ease}
+  body[data-state="listening"] #orb{border-color:var(--accent)}
+  body[data-state="listening"] #orb i{background:var(--accent);animation:pulse 1.1s ease-in-out infinite}
+  body[data-state="thinking"] #orb i,body[data-state="acting"] #orb i{background:var(--ink-2);animation:pulse 1.7s ease-in-out infinite}
+  body[data-state="responding"] #orb i{background:var(--accent-strong);animation:pulse 1.5s ease-in-out infinite}
+  body[data-state="done"] #orb i{background:var(--success)}
+  body[data-state="error"] #orb i{background:var(--danger)}
+  @keyframes pulse{0%,100%{transform:scale(.82);opacity:.72}50%{transform:scale(1.12);opacity:1}}
+
+  #col{min-width:0;flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;gap:1px}
+  #label{font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--ink-2);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body[data-state="idle"] #label{font-size:13px}
+  #detail{font-family:var(--font-voice,Georgia,serif);font-size:14.5px;line-height:1.25;color:var(--ink);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none}
+  #detail.on{display:block}
+
+  #bars{display:flex;align-items:center;gap:3px;height:26px;width:44px;flex:0 0 auto;
+    opacity:0;transition:opacity .25s ease}
+  body[data-state="listening"] #bars{opacity:1}
+  #bars i{width:3px;height:6px;border-radius:2px;background:var(--accent);opacity:.9}
+
+  #expand{width:30px;height:30px;flex:0 0 auto;border-radius:50%;border:1px solid var(--ov-line);
+    background:transparent;color:var(--ink-3);display:grid;place-items:center;cursor:pointer;
+    transition:background .18s,color .18s;padding:0}
+  #expand:hover{color:var(--ink)}
+  html[data-theme="dark"] #expand:hover{background:rgba(226,232,240,.10)}
+  html[data-theme="light"] #expand:hover{background:rgba(23,28,33,.07)}
+</style>
+</head>
+<body data-state="idle">
+<div id="wrap"><div id="pill" class="pywebview-drag-region">
+  <button id="orb" title="Talk to Sotto - tap to start or stop" aria-label="Talk to Sotto"><i></i></button>
+  <div id="col" class="pywebview-drag-region">
+    <span id="label">Sotto</span>
+    <span id="detail"></span>
+  </div>
+  <div id="bars"><i></i><i></i><i></i><i></i><i></i></div>
+  <button id="expand" title="Open Sotto" aria-label="Open Sotto">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 4h6v6"/><path d="M20 4l-6.5 6.5"/><path d="M10 20H4v-6"/><path d="M4 20l6.5-6.5"/>
+    </svg>
+  </button>
+</div></div>
+<script>
+  const api = () => (window.pywebview && window.pywebview.api) ? window.pywebview.api : null;
+  const $ = (id) => document.getElementById(id);
+  const body = document.body, pill = $('pill');
+  const LABEL = {idle:'Sotto', listening:'Listening', thinking:'Thinking', acting:'Working',
+                 responding:'Speaking', done:'Done', error:"Couldn't finish"};
+  let cur = {state:null, detail:null, theme:null, wasVisible:false};
+  let level = 0, jitter = 0;
+
+  function barsTick(){
+    if (body.dataset.state === 'listening'){
+      jitter += 0.13;
+      const els = $('bars').children;
+      for (let i=0;i<els.length;i++){
+        const c = 1 - Math.abs(i-2)/2;
+        const w = 0.55 + 0.45*Math.abs(Math.sin(jitter + i*1.7));
+        const h = 5 + (level*30 + 4) * c * w;
+        els[i].style.height = Math.min(26, h).toFixed(1) + 'px';
+      }
+    }
+    requestAnimationFrame(barsTick);
+  }
+  requestAnimationFrame(barsTick);
+
+  function apply(d){
+    if (!d) return;
+    if (d.theme && d.theme !== cur.theme){
+      cur.theme = d.theme;
+      document.documentElement.setAttribute('data-theme', d.theme === 'dark' ? 'dark' : 'light');
+    }
+    if (d.state !== cur.state){
+      cur.state = d.state; body.dataset.state = d.state;
+      $('label').textContent = LABEL[d.state] || d.state;
+    }
+    const det = d.detail || '';
+    if (det !== cur.detail){
+      cur.detail = det;
+      const el = $('detail');
+      el.textContent = det;
+      el.classList.toggle('on', !!det);
+    }
+    level = Number(d.level) || 0;
+    const vis = !!d.visible;
+    if (vis && !cur.wasVisible){
+      pill.classList.remove('anim'); void pill.offsetWidth; pill.classList.add('anim');
+    }
+    cur.wasVisible = vis;
+  }
+
+  async function poll(){
+    const a = api(); if (!a) return;
+    try {
+      const raw = await a.overlay_state();
+      apply(typeof raw === 'string' ? JSON.parse(raw) : raw);
+    } catch (e) {}
+  }
+  setInterval(poll, 140);
+
+  $('orb').addEventListener('click', () => { const a = api(); if (a) try { a.overlay_tap(); } catch (e) {} });
+  $('expand').addEventListener('click', () => { const a = api(); if (a) try { a.overlay_expand(); } catch (e) {} });
+</script>
+</body>
+</html>

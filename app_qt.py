@@ -466,14 +466,14 @@ class Window(QMainWindow):
         # --- global hotkey (works even when minimised) ---
         self._init_hotkey()
 
-        # --- overlay ---
+        # --- overlay: created but NOT shown yet (appears only when Sotto is in background) ---
         self._overlay = None
         if OVERLAY_ENABLED:
             self._overlay = Overlay(self)
             self._overlay.wake_sig.connect(self._on_wake)
             self.overlay_mode_sig.connect(
                 lambda m, t: self._overlay.set_mode(m, t) if self._overlay else None)
-            self._overlay.show()
+            # overlay starts hidden; it appears automatically when main window loses focus/minimises
 
         # --- wake word background thread ---
         if WAKE_WORD_ENABLED:
@@ -1025,10 +1025,17 @@ class Window(QMainWindow):
     def _set_transcript(self, text):
         self.transcript.setText(text or "")
         self.transcript.setVisible(bool(text))
+        # Mirror transcript in overlay detail line
+        if self._overlay is not None:
+            self._overlay.set_detail(text or "")
+
 
     def _set_level(self, level):
         self.orb.level = level
         self.wave.level = level
+        # Feed real mic level to overlay for audio-reactive visual
+        if self._overlay is not None:
+            self._overlay.set_level(level)
 
     # ------------------------------------------------------ voice
     def toggle_talk(self):
@@ -1109,6 +1116,37 @@ class Window(QMainWindow):
         self.transcript_sig.emit(f"“{text}”")
         self._run_turn(text)
 
+    # ------------------------------------------------------ changeEvent (minimize/restore)
+    def changeEvent(self, event):
+        from PySide6.QtCore import QEvent
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            if self.isMinimized():
+                # Main window going to tray/minimised — show overlay if enabled
+                self._show_overlay_if_active()
+            else:
+                # Main window restored — hide overlay
+                self._hide_overlay()
+
+    def _is_main_in_background(self):
+        """True when Sotto's main window is minimised or not the active window."""
+        return self.isMinimized() or not self.isActiveWindow()
+
+    def _show_overlay_if_active(self):
+        """Show overlay only when assistant is actually doing something."""
+        if self._overlay is None:
+            return
+        # Only show immediately if something is happening.
+        # If idle, don't show — the overlay will appear automatically
+        # the next time the assistant wakes up (via _apply_mode).
+        if self.mode != "idle":
+            self._overlay.appear()
+
+    def _hide_overlay(self):
+        """Hide overlay when main window comes back to focus."""
+        if self._overlay is not None:
+            self._overlay.disappear()
+
     # ------------------------------------------------------ slots
     def _apply_mode(self, mode, hint):
         self.mode = mode
@@ -1120,15 +1158,21 @@ class Window(QMainWindow):
         if mode in ("listening", "processing"):
             self.reply_label.setText("")
         self._set_visibility(mode, hint)
-        # update overlay
+        # update overlay — always push state so overlay is ready when it appears
         if self._overlay is not None:
             self.overlay_mode_sig.emit(mode, hint)
+            # If something interesting is happening and main window is in background, show overlay
+            if mode != "idle" and self._is_main_in_background():
+                self._overlay.appear()
+            # When returning to idle and main is in background, start dismiss timer in overlay
+            if mode == "idle" and self._is_main_in_background():
+                self._overlay.schedule_dismiss()
 
     def _toggle_visible(self):
-        if self.isVisible():
-            self.hide()
+        if self.isMinimized() or not self.isVisible():
+            self.showNormal(); self.raise_(); self.activateWindow()
         else:
-            self.show(); self.raise_(); self.activateWindow()
+            self.showMinimized()
 
     def _set_voice(self, name):
         from config import save_setting
@@ -1178,15 +1222,28 @@ class Window(QMainWindow):
         self.wake_sig.emit()
 
     def _on_wake(self):
-        """Qt-thread slot for wake hotkey / wake word."""
-        if not self.isVisible():
-            self.show()
-            self.raise_()
-            self.activateWindow()
-        if self.mode == "idle":
-            self._start_listening()
-        elif self.mode == "listening":
-            self._finish_listening(force=True)
+        """Qt-thread slot for wake hotkey / wake word.
+
+        If Sotto's main window is active → use it normally (start/stop listening).
+        If Sotto is minimised / in background → interact via the overlay without
+        bringing the main window to the front.
+        """
+        main_active = self.isVisible() and not self.isMinimized() and self.isActiveWindow()
+
+        if main_active:
+            # Normal in-app flow
+            if self.mode == "idle":
+                self._start_listening()
+            elif self.mode == "listening":
+                self._finish_listening(force=True)
+        else:
+            # Background / overlay flow — don't restore the main window
+            if self._overlay is not None:
+                self._overlay.appear()
+            if self.mode == "idle":
+                self._start_listening()
+            elif self.mode == "listening":
+                self._finish_listening(force=True)
 
     def _init_hotkey(self):
         """Register the global hotkey so it works even when the window is minimised."""
@@ -1225,80 +1282,199 @@ class Window(QMainWindow):
 # ================================================================ overlay widget
 class Overlay(QWidget):
     """
-    A small always-on-top, translucent pill that floats on screen and shows
-    Sotto's current state. Click the mic icon to activate, drag to reposition,
-    double-click to open the main window. Stays visible when minimised.
+    Automatic assistant presence overlay.
+
+    Behaviour:
+    - Hidden by default. Never shows when the main window is active.
+    - Appears automatically when the assistant enters a non-idle state while
+      the main window is minimised / in background.
+    - Shows state: listening, processing, speaking, working.
+    - Reacts to real mic level (audio-reactive orb dot).
+    - Auto-dismisses a few seconds after returning to idle.
+    - Drag to reposition. Double-click to restore main window.
+    - Clicking the orb dot triggers wake (mic toggle).
     """
     wake_sig = Signal()
+
+    # State colours
+    _COLOURS = {
+        "idle":       QColor(139, 92, 246),   # violet
+        "listening":  QColor(34, 211, 238),   # cyan
+        "processing": QColor(245, 158, 11),   # amber
+        "speaking":   QColor(52, 211, 153),   # emerald
+        "error":      QColor(239, 68, 68),    # red
+    }
+    _LABELS = {
+        "idle":       "",
+        "listening":  "Listening",
+        "processing": "Thinking",
+        "speaking":   "Speaking",
+        "error":      "Something went wrong",
+    }
 
     def __init__(self, main_win):
         super().__init__(None, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setWindowOpacity(0.0)   # start invisible even if shown
         self.main_win = main_win
         self._drag_pos = None
         self._mode = "idle"
+        self._level = 0.0       # real mic level 0..1
         self._phase = 0.0
+        self._opacity = 0.0     # current logical opacity (0..1)
+        self._target_opacity = 0.0
+        self._dismiss_timer = QTimer(self)
+        self._dismiss_timer.setSingleShot(True)
+        self._dismiss_timer.timeout.connect(self._do_dismiss)
+        self._visible_state = False   # tracks whether we're "shown"
 
+        # ---- layout ----
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(14, 8, 14, 8)
-        lay.setSpacing(8)
+        lay.setContentsMargins(16, 10, 16, 10)
+        lay.setSpacing(10)
 
-        self._dot = QLabel("●")
-        self._dot.setStyleSheet("color:#8B5CF6;font-size:12px;")
-        lay.addWidget(self._dot)
+        # Animated orb dot (custom-drawn; reacts to mic level)
+        self._orb = _OverlayOrb(self)
+        self._orb.setFixedSize(18, 18)
+        self._orb.clicked.connect(self.wake_sig.emit)
+        lay.addWidget(self._orb)
 
-        self._lbl = QLabel("Sotto · idle")
-        self._lbl.setStyleSheet("color:#EDEDF3;font-size:13px;font-family:'Segoe UI Variable Text';")
+        # State label
+        self._lbl = QLabel("")
+        self._lbl.setStyleSheet(
+            "color:#EDEDF3;font-size:13px;"
+            "font-family:'Segoe UI Variable Text','Segoe UI',sans-serif;"
+            "font-weight:500;")
         lay.addWidget(self._lbl)
 
-        self._mic_btn = QPushButton("🎤")
-        self._mic_btn.setFixedSize(28, 28)
-        self._mic_btn.setStyleSheet("QPushButton{background:rgba(139,92,246,0.20);border:1px solid "
-                                    "rgba(139,92,246,0.40);border-radius:14px;color:#fff;font-size:13px;}"
-                                    "QPushButton:hover{background:rgba(139,92,246,0.45);}")
-        self._mic_btn.clicked.connect(self.wake_sig.emit)
-        lay.addWidget(self._mic_btn)
+        # Transcript / detail label (smaller, muted)
+        self._detail = QLabel("")
+        self._detail.setStyleSheet(
+            "color:#9A9AA5;font-size:12px;"
+            "font-family:'Segoe UI Variable Text','Segoe UI',sans-serif;")
+        self._detail.setVisible(False)
+        lay.addWidget(self._detail)
 
-        self.setFixedHeight(46)
+        self.setFixedHeight(44)
         self.adjustSize()
 
-        # Position: bottom-right, above taskbar
+        # Position: top-center of available screen area
+        self._reposition()
+
+        # Main animation tick
+        self._ticker = QTimer(self)
+        self._ticker.timeout.connect(self._tick)
+        self._ticker.start(16)   # ~60 fps
+
+    def _reposition(self):
+        """Centre at top of primary screen, with a small margin."""
         screen = QApplication.primaryScreen().availableGeometry()
-        self.move(screen.right() - self.width() - 18, screen.bottom() - self.height() - 12)
+        self.adjustSize()
+        x = screen.center().x() - self.width() // 2
+        y = screen.top() + 14
+        self.move(x, y)
 
-        # Animate phase
-        t = QTimer(self)
-        t.timeout.connect(self._tick)
-        t.start(50)
-
-    def _tick(self):
-        self._phase = (self._phase + 0.06) % (2 * math.pi)
-        self.update()
+    # ---- public API ----
 
     def set_mode(self, mode, text=""):
+        """Called whenever assistant state changes."""
+        prev = self._mode
         self._mode = mode
-        colours = {"idle": "#8B5CF6", "listening": "#22D3EE",
-                   "processing": "#F59E0B", "speaking": "#34D399"}
-        col = colours.get(mode, "#8B5CF6")
-        self._dot.setStyleSheet(f"color:{col};font-size:12px;")
-        labels = {"idle": "Sotto · idle", "listening": "Listening…",
-                  "processing": "Thinking…", "speaking": "Speaking…"}
-        self._lbl.setText(text or labels.get(mode, "Sotto"))
+        self._orb.mode = mode
+        col = self._COLOURS.get(mode, self._COLOURS["idle"])
+        self._orb.colour = col
+
+        label = text or self._LABELS.get(mode, "")
+        self._lbl.setText(label)
+        self._lbl.setVisible(bool(label))
+
+        # Cancel any pending dismiss when entering an active state
+        if mode != "idle":
+            self._dismiss_timer.stop()
+
+        # Refit width
+        self.adjustSize()
+        self._reposition()
+
+    def set_level(self, level):
+        """Feed real mic level (0..1) from the pump thread."""
+        self._level = level
+        self._orb.level = level
+
+    def set_detail(self, text):
+        """Show small detail text (transcription, task progress, etc.)."""
+        self._detail.setText(text or "")
+        self._detail.setVisible(bool(text))
+        self.adjustSize()
+        self._reposition()
+
+    def appear(self):
+        """Smoothly fade the overlay in."""
+        if self._visible_state:
+            return
+        self._visible_state = True
+        self._dismiss_timer.stop()
+        if not self.isVisible():
+            self._reposition()
+            self.show()
+        self._target_opacity = 1.0
+
+    def disappear(self):
+        """Smoothly fade the overlay out."""
+        self._visible_state = False
+        self._dismiss_timer.stop()
+        self._target_opacity = 0.0
+
+    def schedule_dismiss(self, ms=2800):
+        """Schedule auto-dismiss after the given delay (used when returning to idle)."""
+        self._dismiss_timer.start(ms)
+
+    def _do_dismiss(self):
+        """Auto-dismiss: fade out."""
+        self.disappear()
+
+    # ---- internal ----
+
+    def _tick(self):
+        self._phase = (self._phase + 0.055) % (2 * math.pi)
+        self._orb.phase = self._phase
+        self._orb.update()
+
+        # Smooth opacity animation
+        diff = self._target_opacity - self._opacity
+        if abs(diff) > 0.004:
+            self._opacity += diff * 0.14
+            self.setWindowOpacity(max(0.0, min(1.0, self._opacity)))
+        elif self._opacity < 0.01 and self._target_opacity < 0.01:
+            # Fully faded out — hide to avoid input-blocking
+            if self.isVisible():
+                self.hide()
+                self._opacity = 0.0
+        elif not self.isVisible() and self._target_opacity > 0.01:
+            self.show()
 
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        pulse = 0.0
-        if self._mode == "listening":
-            pulse = 0.08 * math.sin(self._phase * 3)
-        bg = QColor(15, 15, 26, int(220 + pulse * 30))
-        p.setPen(QPen(QColor(139, 92, 246, 80), 1.2))
+        r = self.rect().adjusted(1, 1, -1, -1)
+
+        # Background pill
+        bg = QColor(12, 12, 20, 218)
+        p.setPen(Qt.NoPen)
         p.setBrush(QBrush(bg))
-        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 23, 23)
+        p.drawRoundedRect(r, 22, 22)
+
+        # Subtle border — colour shifts with state
+        col = self._COLOURS.get(self._mode, self._COLOURS["idle"])
+        border = QColor(col)
+        border.setAlphaF(0.28)
+        p.setPen(QPen(border, 1.0))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(r, 22, 22)
         p.end()
 
-    # Drag to reposition
+    # ---- drag to reposition ----
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
             self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -1311,9 +1487,78 @@ class Overlay(QWidget):
         self._drag_pos = None
 
     def mouseDoubleClickEvent(self, _e):
-        self.main_win.show()
+        """Double-click: restore main window."""
+        self.main_win.showNormal()
         self.main_win.raise_()
         self.main_win.activateWindow()
+
+
+class _OverlayOrb(QPushButton):
+    """A small animated dot that reacts to mic level and assistant state."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.mode = "idle"
+        self.level = 0.0
+        self.phase = 0.0
+        self.colour = QColor(139, 92, 246)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet("background:transparent;border:0;")
+        self.setToolTip("Click to activate / stop")
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        cx, cy = w / 2.0, h / 2.0
+        r = min(w, h) / 2.0 - 1
+
+        col = QColor(self.colour)
+
+        if self.mode == "listening":
+            # Pulse ring reacting to actual mic level
+            pulse_r = r + 3.0 + self.level * 5.0
+            ring = QColor(col)
+            ring.setAlphaF(max(0.0, 0.5 * self.level))
+            p.setPen(QPen(ring, 1.4))
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(QPointF(cx, cy), pulse_r, pulse_r)
+
+            # Breath ring
+            breath = r + 1.5 + 1.5 * (math.sin(self.phase * 4) + 1) / 2
+            ring2 = QColor(col)
+            ring2.setAlphaF(0.30)
+            p.setPen(QPen(ring2, 1.0))
+            p.drawEllipse(QPointF(cx, cy), breath, breath)
+
+        elif self.mode == "processing":
+            # Rotating arc
+            arc_col = QColor(col); arc_col.setAlphaF(0.85)
+            p.setPen(QPen(arc_col, 2.0, Qt.SolidLine, Qt.RoundCap))
+            p.setBrush(Qt.NoBrush)
+            start = int((-self.phase * 180 / math.pi * 2) % 360) * 16
+            p.drawArc(QRectF(cx - r + 1, cy - r + 1, (r - 1) * 2, (r - 1) * 2), start, 270 * 16)
+
+        elif self.mode == "speaking":
+            # Gentle pulse
+            beat = 0.4 + 0.6 * (math.sin(self.phase * 3.5) + 1) / 2
+            glow = QColor(col); glow.setAlphaF(0.22 * beat)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(glow))
+            p.drawEllipse(QPointF(cx, cy), r + 4 * beat, r + 4 * beat)
+
+        # Core filled dot
+        core = QColor(col)
+        core.setAlphaF(0.92)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(core))
+        p.drawEllipse(QPointF(cx, cy), r, r)
+
+        # Specular highlight
+        spec = QColor(255, 255, 255); spec.setAlphaF(0.30)
+        p.setBrush(QBrush(spec))
+        p.drawEllipse(QPointF(cx - r * 0.28, cy - r * 0.32), r * 0.26, r * 0.20)
+        p.end()
 
 
 def main():

@@ -64,6 +64,22 @@ class Api:
         self._last_status = None
         self._turn_checked = False
         self._turn_leak = False
+        self._tts = False               # True while a say()/say_slow() call is speaking
+        self._wake_on = False           # wake-word listener enabled (in-memory switch)
+        self._wake_thread = None
+        from config import load_settings as _ls
+        self._overlay_enabled = bool(_ls().get("overlay_enabled", True))
+        self._overlay_window = None
+        self._main_window = None
+        # floating-overlay snapshot (read by the overlay pill + its controller)
+        self._ov_detail = ""
+        self._ov_said = ""
+        self._ov_final = ""
+        self._ov_err = ""
+        self._ov_done_ts = 0.0
+        self._ov_err_ts = 0.0
+        self._ov_ts = 0.0
+        self._theme = "light"
 
     # ---- lifecycle -----------------------------------------------------
     def start(self):
@@ -73,6 +89,10 @@ class Api:
     # ---- event queue (the UI polls this) -------------------------------
     def _push(self, event):
         _log(f"evt {event.get('type')} {str(event.get('text') or event.get('name') or '')[:90]!r}")
+        try:
+            self._ov_note(event)
+        except Exception:
+            pass
         with self._lock:
             self._events.append(event)
 
@@ -181,6 +201,7 @@ class Api:
         self._last_status = None
         self._turn_checked = False
         self._turn_leak = False
+        self._ov_reset_turn()
         low = text.lower().strip(" .!?")
         if self._last_reply and low in ("repeat that", "say that again", "say it again", "repeat", "again", "repeat it"):
             self._start_replay({"type": "speak_only", "text": self._last_reply})
@@ -606,14 +627,27 @@ class Api:
         return json.dumps(bool(save_setting("sound_effects", bool(on))))
 
     def set_wake(self, on):
+        """Toggle the hands-free wake word ("hey sotto"). Starts/stops the
+        listener live; persists to wake_word_enabled (NOT wake_word, which
+        holds the spoken phrase)."""
         from config import save_setting
-        return json.dumps(bool(save_setting("wake_word", bool(on))))
+        on = bool(on)
+        ok = bool(save_setting("wake_word_enabled", on))
+        if on:
+            self._maybe_start_wake()
+        else:
+            self._wake_on = False
+        _log(f"set_wake -> {on} ok={ok}")
+        return json.dumps(ok)
 
     def say_slow(self, text):
+        self._tts = True
         try:
             return json.dumps({"ok": bool(voice.speak(text, rate=-3))})
         except Exception as e:
             return json.dumps({"ok": False, "error": str(e)})
+        finally:
+            self._tts = False
 
     # ---- side panels ---------------------------------------------------
     def info(self):
@@ -629,6 +663,8 @@ class Api:
             "model": MODEL_NAME,
             "apps": len(tools.APP_INDEX),
             "scan_needed": not bool(config.load_settings().get("scan_done")),
+            "wake_enabled": bool(config.load_settings().get("wake_word_enabled")),
+            "overlay_enabled": bool(self._overlay_enabled),
             "memory": self.assistant.memory.facts(),
             "notes": [n["text"] for n in self.assistant.notes.list(50)],
             "reminders": self.assistant.reminders.list(),
@@ -645,6 +681,36 @@ class Api:
     def set_window(self, window):
         self._window = window
         self._start_global_hotkey()
+        self._maybe_start_wake()
+
+    def _show_window(self):
+        w = getattr(self, "_window", None)
+        if not w:
+            return
+        try:
+            w.restore()
+            w.show()
+        except Exception:
+            pass
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.FindWindowW(None, w.title)
+            if hwnd:
+                # A background process isn't allowed to grab focus directly;
+                # the tap of the Alt key makes Windows permit it.
+                ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)
+                ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+
+    def _activate_visual(self):
+        """Where an activation (hotkey / wake word) becomes visible. With the
+        overlay on, the floating pill is the interface and the main window
+        stays exactly where the user left it; without it, open the window."""
+        if self._overlay_enabled:
+            return
+        self._show_window()
 
     def _start_global_hotkey(self):
         """Register native Windows global hotkey Ctrl+Space on background thread."""
@@ -667,13 +733,8 @@ class Api:
                 while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
                     if msg.message == 0x0312:  # WM_HOTKEY
                         _log("Global hotkey Ctrl+Space pressed")
-                        if self._window:
-                            try:
-                                self._window.restore()
-                                self._window.show()
-                            except Exception:
-                                pass
-                        self._push({"type": "hotkey", "action": "activate"})
+                        self._activate_visual()
+                        self._push({"type": "hotkey", "action": "activate", "ts": time.time()})
                     user32.TranslateMessage(ctypes.byref(msg))
                     user32.DispatchMessageW(ctypes.byref(msg))
             except Exception as e:
@@ -681,52 +742,220 @@ class Api:
 
         threading.Thread(target=_hotkey_loop, daemon=True).start()
 
-    def set_window_mode(self, mode):
-        """Switch between the full window and the floating mini overlay."""
-        m = str(mode or "full").lower()
+    # ---- wake word (hands-free activation) ------------------------------
+    def _maybe_start_wake(self):
+        """Start the background wake-word listener if enabled in settings."""
+        from config import load_settings
+        if not load_settings().get("wake_word_enabled"):
+            return
+        if self._wake_thread is not None:
+            return
+        self._wake_on = True
+        self._wake_thread = threading.Thread(target=self._wake_loop, daemon=True)
+        self._wake_thread.start()
+        _log("wake-word listener started")
+
+    def _wake_loop(self):
+        """Record short snippets and listen for the wake phrase. Never fights
+        the UI for the microphone: pauses while a turn is running, the UI is
+        listening, or Sotto is speaking."""
+        import tempfile
+        import pathlib
+        try:
+            from voice import record_wav, transcribe_wav, stt_ready
+            if not stt_ready():
+                _log("wake-word: STT not ready - listener stopped")
+                self._wake_thread = None
+                return
+            from config import load_settings
+            kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
+            tmp = pathlib.Path(tempfile.gettempdir()) / "sotto_wake.wav"
+            _log(f"wake-word: listening for '{kw}'")
+            while self._wake_on:
+                time.sleep(0.4)
+                if self._busy or getattr(self, "_mic", None) or self._tts:
+                    continue
+                ok, _lvl, _err = record_wav(str(tmp), seconds=2)
+                if not ok:
+                    time.sleep(2)
+                    continue
+                if self._busy or getattr(self, "_mic", None) or self._tts:
+                    continue
+                text, _err = transcribe_wav(str(tmp))
+                if not text:
+                    continue
+                low = text.lower()
+                if kw in low:
+                    rest = low.split(kw, 1)[1].strip(" .,!?")
+                    _log(f"wake-word heard: {text!r} rest={rest!r}")
+                    self._activate_visual()
+                    self._push({"type": "wake", "rest": rest, "ts": time.time()})
+                    time.sleep(2)  # cool-off so our own reply doesn't retrigger
+        except Exception as e:
+            _log(f"wake-word loop error: {e}")
+        finally:
+            self._wake_thread = None
+
+    # ---- floating overlay -------------------------------------------------
+    _TOOL_PHRASES = {
+        "search_web": "Searching the web", "look_up": "Looking that up",
+        "read_webpage": "Reading the page", "open_application": "Opening the app",
+        "read_screen": "Looking at your screen", "read_window_text": "Reading the window",
+        "read_pdf": "Reading the document", "read_file": "Reading the file",
+        "email_summary": "Checking your email", "email_read": "Reading your email",
+        "email_search": "Searching your email", "email_draft": "Writing a reply",
+        "email_send": "Sending the email", "calendar_today": "Checking your day",
+        "calendar_week": "Checking your week", "calendar_add": "Adding the event",
+        "organize_downloads": "Organising files", "find_files": "Finding the file",
+        "run_command": "Running a command", "type_text": "Typing",
+        "get_weather": "Checking the weather", "set_reminder": "Setting the reminder",
+        "add_note": "Saving the note", "daily_briefing": "Preparing your briefing",
+        "take_screenshot": "Taking a screenshot", "smart_find": "Searching your files",
+        "move_file": "Moving the file", "copy_file": "Copying the file",
+        "save_text_file": "Saving the file",
+    }
+
+    def set_overlay_window(self, overlay_win, main_win):
+        self._overlay_window = overlay_win
+        self._main_window = main_win
+
+    def _ov_note(self, event):
+        """Update the floating-overlay snapshot from real assistant events."""
+        t = event.get("type")
+        now = time.time()
+        self._ov_ts = now
+        if t in ("say", "text"):
+            txt = str(event.get("text") or "").strip()
+            if txt:
+                self._ov_said = (self._ov_said + " " + txt).strip()[-180:]
+                self._ov_detail = self._ov_said
+        elif t == "tool":
+            name = str(event.get("name") or "")
+            self._ov_detail = self._TOOL_PHRASES.get(name, "Working on it")
+        elif t == "state":
+            label = str(event.get("label") or "").strip()
+            if label:
+                self._ov_detail = label
+        elif t == "done":
+            self._ov_final = str(event.get("full") or event.get("text") or self._ov_said or "").strip()
+            if not self._ov_final:
+                self._ov_final = self._ov_said.strip()
+            self._ov_detail = self._ov_final[-180:] if self._ov_final else self._ov_detail
+            self._ov_done_ts = now
+        elif t == "error":
+            self._ov_err = str(event.get("text") or "Something went wrong.").strip()
+            self._ov_detail = self._ov_err
+            self._ov_err_ts = now
+
+    def _ov_reset_turn(self):
+        self._ov_said = ""
+        self._ov_detail = ""
+        self._ov_final = ""
+        self._ov_err = ""
+        self._ov_done_ts = 0.0
+        self._ov_err_ts = 0.0
+
+    def set_theme(self, theme):
+        t = str(theme or "").strip().lower()
+        if t == "dark":
+            self._theme = "dark"
+        elif t in ("light", "system"):
+            self._theme = "light"
+        return json.dumps(True)
+
+    # ---- floating overlay pill ------------------------------------------
+    def overlay_on(self):
+        """Live value the visibility controller polls (no file reads)."""
+        return bool(self._overlay_enabled)
+
+    def set_overlay(self, on):
+        from config import save_setting
+        on = bool(on)
+        ok = bool(save_setting("overlay_enabled", on))
+        self._overlay_enabled = on
+        _log(f"set_overlay -> {on} ok={ok}")
+        return json.dumps(ok)
+
+    def overlay_tap(self):
+        """Orb tapped on the pill: start talking - or stop if already listening."""
+        try:
+            if getattr(self, "_mic", None):
+                self._push({"type": "ov_stop", "ts": time.time()})
+                return json.dumps(True)
+        except Exception:
+            pass
+        self._push({"type": "hotkey", "action": "activate", "ts": time.time()})
+        return json.dumps(True)
+
+    def request_pill_enter(self):
+        """'Send to background' button: hide the main window. From here the
+        floating overlay (tap / Ctrl+Space) is the interface."""
+        _log("send-to-background -> overlay handles the presence")
+        return self.hide_main()
+
+    def overlay_state_raw(self):
+        """Snapshot the floating overlay renders. Real states only."""
+        now = time.time()
+        state, detail, level = "idle", "", 0.0
+        if getattr(self, "_mic", None):
+            state = "listening"
+            try:
+                level = self.listen_level()
+            except Exception:
+                level = 0.0
+        elif self._busy:
+            state = self._last_status or "thinking"
+            if state not in ("thinking", "acting", "responding", "waiting"):
+                state = "thinking"
+            detail = self._ov_detail
+        elif self._tts:
+            state = "responding"
+            detail = self._ov_detail
+        elif (now - self._ov_err_ts) < 5.5 and self._ov_err:
+            state, detail = "error", self._ov_err
+        elif (now - self._ov_done_ts) < 3.8 and (self._ov_final or self._ov_detail):
+            state, detail = "done", (self._ov_final or self._ov_detail)
+        active = state in ("listening", "thinking", "acting", "responding", "working", "waiting")
+        linger = state in ("done", "error")
+        return {
+            "state": state,
+            "detail": (detail or "")[-180:],
+            "level": round(float(level or 0.0), 3),
+            "visible": bool(active or linger),
+            "theme": getattr(self, "_theme", "light"),
+        }
+
+    def overlay_state(self):
+        """Returns JSON string of current state for the overlay webview."""
+        return json.dumps(self.overlay_state_raw())
+
+    def overlay_expand(self):
+        """Called by overlay webview expand button."""
+        self._pill_exit = True
+        return json.dumps(True)
+
+    def overlay_expand_pending(self):
+        """Polled by the window controller."""
+        v = bool(getattr(self, "_pill_exit", False))
+        self._pill_exit = False
+        return v
+
+    def request_pill_exit(self):
+        """Pill expand: bring the main window back."""
+        return self.overlay_expand()
+
+    def hide_main(self):
+        """Overlay disabled: send Sotto to the background showing nothing."""
         w = getattr(self, "_window", None)
         if not w:
             return json.dumps(False)
         try:
-            if m == "mini":
-                try:
-                    self._prev_rect = (w.x, w.y, w.width, w.height)
-                except Exception:
-                    self._prev_rect = None
-                w.resize(380, 118)
-                try:
-                    import ctypes
-                    sw = ctypes.windll.user32.GetSystemMetrics(0)
-                    sh = ctypes.windll.user32.GetSystemMetrics(1)
-                    w.move(max(0, sw - 380 - 24), max(0, sh - 118 - 64))
-                except Exception:
-                    pass
-                w.on_top = True
-                _log("set_window_mode -> mini")
-            else:
-                w.on_top = False
-                prev = getattr(self, "_prev_rect", None)
-                if prev:
-                    x, y, ww, hh = prev
-                    w.resize(int(ww), int(hh))
-                    w.move(int(x), int(y))
-                    self._prev_rect = None
-                else:
-                    w.resize(1180, 780)
-                _log("set_window_mode -> full")
-            return json.dumps(True)
+            w.hide()
         except Exception as e:
-            _log(f"set_window_mode error: {e}")
+            _log(f"hide_main error: {e}")
             return json.dumps(False)
-
-    def set_always_on_top(self, on_top):
-        if not getattr(self, "_window", None):
-            return json.dumps(False)
-        try:
-            self._window.on_top = bool(on_top)
-            return json.dumps(True)
-        except Exception:
-            return json.dumps(False)
+        _log("hide_main -> background")
+        return json.dumps(True)
 
     # ---- voice ---------------------------------------------------------
     def listen(self):
@@ -736,7 +965,10 @@ class Api:
             return json.dumps({"text": "", "error": str(e)})
 
     def say(self, text):
+        self._tts = True
         try:
             return json.dumps({"ok": bool(voice.speak(text))})
         except Exception as e:
             return json.dumps({"ok": False, "error": str(e)})
+        finally:
+            self._tts = False

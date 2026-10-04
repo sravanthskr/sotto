@@ -16,8 +16,11 @@ All notable changes to Sotto are recorded in this file.
 
 ## [Unreleased]
 
+### Changed
+- Floating overlay rebuilt: a small frameless always-on-top pill now appears over other apps while Sotto is listening, thinking, working or speaking - then fades away when the task is done. It uses the app's own design system, shows live state with real microphone levels, and never steals focus. Tap the orb to talk, the arrow to reopen Sotto; Ctrl+Space summons it from anywhere. (The experimental tkinter pill is gone.)
+
 ### Added
-- Floating mini overlay: shrink Sotto to a small always-on-top bar (new Mini button in the header, or say "mini mode"); expand back from the bar or say "full mode". While it's in mini mode, Ctrl+Space brings Sotto back from anywhere.
+- "Send to background" (header button): hides the main window; the floating overlay keeps the assistant reachable.
 
 *See the Roadmap section of the [README](README.md) for what's being worked on.*
 

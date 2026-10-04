@@ -693,18 +693,41 @@ body.sheet-open .frame{transform:scale(.988)}
 .cp-text{font-size:14px;font-weight:500;color:var(--ink);font-family:var(--font-mono)}
 
 
-
 /* ============================================================
-   FLOATING MINI OVERLAY
+   FLOATING PILL MODE
+   When you leave Sotto, its own window shrinks to this pill and
+   floats above everything; coming back restores the full window.
    ============================================================ */
-#miniBar{display:none}
-body.mini #miniBar{display:flex;align-items:center;gap:12px;height:100vh;padding:0 16px;background:var(--bg)}
-body.mini .frame,
-body.mini .toast{display:none !important}
-#miniBar .mini-orb{width:44px;height:44px;border-radius:50%;border:1px solid var(--line-strong);background:var(--surface);cursor:pointer;position:relative;flex:0 0 auto}
-#miniBar .mini-orb::after{content:"";position:absolute;inset:13px;border-radius:50%;background:var(--accent-strong);animation:breath 3.2s var(--ease-soft) infinite alternate}
-#miniBar .mini-info{min-width:0;flex:1;display:flex;flex-direction:column;line-height:1.15}
-#miniBar .mini-title{font-family:var(--font-voice);font-size:15px;color:var(--ink)}
-#miniBar .mini-status{font-size:11.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#miniBar .mini-btn{margin-left:auto;width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink-2);cursor:pointer;display:grid;place-items:center}
-#miniBar .mini-btn:hover{background:rgba(127,127,127,0.12);color:var(--ink)}
+#pillBar{display:none}
+body.pillmode{overflow:hidden;background:#0C0E11}
+body.pillmode .frame,
+body.pillmode .toast{display:none !important}
+body.pillmode #pillBar{
+  display:flex;align-items:center;gap:11px;height:100vh;
+  padding:0 9px 0 12px;box-sizing:border-box;
+  background:rgba(12,14,17,.97);border:1px solid rgba(226,232,240,.14);
+  border-radius:30px;user-select:none;cursor:default;
+}
+#pillOrb{width:38px;height:38px;flex:0 0 auto;border-radius:50%;position:relative;
+  border:1px solid rgba(226,232,240,.14);background:rgba(255,255,255,.04);
+  display:grid;place-items:center;cursor:pointer;transition:border-color .25s ease}
+#pillHalo{position:absolute;inset:-1px;border-radius:50%;border:1px solid var(--accent,#A9CCDE);
+  opacity:0;transform:scale(1);transition:opacity .18s ease;pointer-events:none}
+#pillCore{width:12px;height:12px;border-radius:50%;background:#7D8791;
+  animation:pillbreath 3.4s ease-in-out infinite alternate}
+body.pillmode[data-state="listening"] #pillOrb{border-color:var(--accent,#A9CCDE)}
+body.pillmode[data-state="listening"] #pillCore{background:var(--accent,#A9CCDE);animation-duration:.9s}
+body.pillmode[data-state="thinking"] #pillCore,
+body.pillmode[data-state="acting"] #pillCore,
+body.pillmode[data-state="understanding"] #pillCore{background:#A7B0B8;animation-duration:1.5s;opacity:.85}
+body.pillmode.speaking #pillCore{background:var(--accent-strong,#C9E1EE);animation-duration:.7s}
+#pillInfo{min-width:0;flex:1;display:flex;flex-direction:column;line-height:1.18}
+#pillTitle{font-family:var(--font-voice,Georgia,serif);font-size:14.5px;color:#EAEDEF;letter-spacing:-.01em}
+#pillStatus{font-size:11px;color:#A7B0B8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.pillmode[data-state="listening"] #pillStatus{color:var(--accent,#A9CCDE)}
+body.pillmode.speaking #pillStatus{color:var(--accent-strong,#C9E1EE)}
+#pillExpand{width:30px;height:30px;flex:0 0 auto;border-radius:9px;border:0;background:none;
+  display:grid;place-items:center;color:#A7B0B8;cursor:pointer;
+  transition:background .15s ease,color .15s ease}
+#pillExpand:hover{background:rgba(255,255,255,.09);color:#EAEDEF}
+@keyframes pillbreath{from{transform:scale(.82);opacity:.75}to{transform:scale(1.12);opacity:1}}

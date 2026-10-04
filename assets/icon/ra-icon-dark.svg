@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="RealAssistant">
+  <!-- RealAssistant — application icon · dark (primary)
+       Concept: "The Held Thread" — the field (tile) holds one calm thread of
+       attention, gathered into a single point: the presence. One accent, spent once.
+       Geometry: 256 grid · tile r56 · thread stroke 16, x 64→192, rounded caps ·
+       point Ø52 centered. Mono-safe: works as solid-black / solid-white shape. -->
+  <rect width="256" height="256" rx="56" fill="#121519"/>
+  <line x1="64" y1="128" x2="192" y2="128" stroke="#EAEDEF" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="128" cy="128" r="26" fill="#A9CCDE"/>
+</svg>
