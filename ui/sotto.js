@@ -617,7 +617,10 @@
     if (!listening && (state === 'idle' || state === 'ready')) startListening();
   }
 
+  let _idleTicks = 0;
   async function idlePoll() {
+    _idleTicks += 1;
+    if (_idleTicks % 34 === 1) { try { callIf('log', 'idlePoll tick ' + _idleTicks + ' hidden=' + document.hidden); } catch (err) {} }
     if (turnActive) return;
     const api = bridge();
     if (!api || !hasApi('poll')) return;
@@ -639,6 +642,8 @@
     }
   }
   setInterval(idlePoll, 350);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) idlePoll(); });
+  window.addEventListener('focus', () => idlePoll());
 
   async function send(text, viaVoice = false, isRetry = false) {
     text = (text || '').trim();

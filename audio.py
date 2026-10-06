@@ -17,6 +17,9 @@ import sounddevice as sd
 from config import MIC_DEVICE
 
 
+_MIC_LOCK = threading.Lock()
+
+
 class MicStream:
     def __init__(self, device=None, samplerate=16000):
         self.device = MIC_DEVICE if device is None else device
@@ -141,74 +144,79 @@ class VoiceCapture:
         peak = 0.0
         t0 = time.time()
         try:
-            with sd.RawInputStream(samplerate=self.sr, channels=1, dtype="int16",
-                                   blocksize=frame_b // 2, callback=callback,
-                                   device=self.device):
-                while True:
-                    if self._force:
+            if not _MIC_LOCK.acquire(timeout=15):
+                raise RuntimeError("microphone busy")
+            try:
+                with sd.RawInputStream(samplerate=self.sr, channels=1, dtype="int16",
+                                       blocksize=frame_b // 2, callback=callback,
+                                       device=self.device):
+                    while True:
+                        if self._force:
+                            if not started:
+                                self.canceled = True
+                            break
+                        if self._should_stop and self._should_stop():
+                            if not started:
+                                self.canceled = True
+                            break
+                        el = time.time() - t0
+                        try:
+                            raw = q.get(timeout=0.1)
+                        except queue.Empty:
+                            raw = None
+                        if raw is None:
+                            if not started and el > self.no_speech_timeout:
+                                break
+                            if started and el > self.max_len:
+                                break
+                            continue
+                        if len(raw) < frame_b:
+                            continue
+                        raw = raw[:frame_b]
+                        smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
+                        rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
+                        if rms > peak:
+                            peak = rms
+                        self.level = min(1.0, rms / 0.25)
+                        if vad is not None:
+                            try:
+                                vad_speech = vad.is_speech(raw, self.sr)
+                            except Exception:
+                                vad_speech = False
+                        else:
+                            vad_speech = True
+                        # noise floor: tracks the quietest level the mic shows
+                        if floor is None:
+                            floor = rms
+                        elif rms < floor * 1.5:
+                            floor = floor * 0.98 + rms * 0.02
+                        else:
+                            floor = floor * 1.001
+                        gate = max(floor * 1.6, 0.015)
+                        speech = bool(vad_speech and rms > gate)
+                        speech2 = bool(vad_speech and rms > max(floor * 1.15, 0.010))
                         if not started:
-                            self.canceled = True
-                        break
-                    if self._should_stop and self._should_stop():
-                        if not started:
-                            self.canceled = True
-                        break
-                    el = time.time() - t0
-                    try:
-                        raw = q.get(timeout=0.1)
-                    except queue.Empty:
-                        raw = None
-                    if raw is None:
+                            preroll.append(raw)
+                            voiced = voiced + 1 if speech else 0
+                            voiced2 = voiced2 + 1 if speech2 else 0
+                            if voiced >= 3 or voiced2 >= 10:
+                                started = True
+                                self.heard = True
+                                frames = list(preroll)
+                                self.stats["onset"] = round(el, 2)
+                                self.stats["floor"] = round(floor, 4)
+                        else:
+                            frames.append(raw)
+                            unvoiced = 0 if speech else unvoiced + 1
+                            keep = int(max(3, round(self.end_silence / 0.03)))
+                            if unvoiced >= keep:
+                                break
+                            if el > self.max_len:
+                                break
                         if not started and el > self.no_speech_timeout:
                             break
-                        if started and el > self.max_len:
-                            break
-                        continue
-                    if len(raw) < frame_b:
-                        continue
-                    raw = raw[:frame_b]
-                    smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
-                    rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
-                    if rms > peak:
-                        peak = rms
-                    self.level = min(1.0, rms / 0.25)
-                    if vad is not None:
-                        try:
-                            vad_speech = vad.is_speech(raw, self.sr)
-                        except Exception:
-                            vad_speech = False
-                    else:
-                        vad_speech = True
-                    # noise floor: tracks the quietest level the mic shows
-                    if floor is None:
-                        floor = rms
-                    elif rms < floor * 1.5:
-                        floor = floor * 0.98 + rms * 0.02
-                    else:
-                        floor = floor * 1.001
-                    gate = max(floor * 1.6, 0.015)
-                    speech = bool(vad_speech and rms > gate)
-                    speech2 = bool(vad_speech and rms > max(floor * 1.15, 0.010))
-                    if not started:
-                        preroll.append(raw)
-                        voiced = voiced + 1 if speech else 0
-                        voiced2 = voiced2 + 1 if speech2 else 0
-                        if voiced >= 3 or voiced2 >= 10:
-                            started = True
-                            self.heard = True
-                            frames = list(preroll)
-                            self.stats["onset"] = round(el, 2)
-                            self.stats["floor"] = round(floor, 4)
-                    else:
-                        frames.append(raw)
-                        unvoiced = 0 if speech else unvoiced + 1
-                        keep = int(max(3, round(self.end_silence / 0.03)))
-                        if unvoiced >= keep:
-                            break
-                        if el > self.max_len:
-                            break
-                    if not started and el > self.no_speech_timeout:
-                        break
+            finally:
+                _MIC_LOCK.release()
         except Exception as e:
             self.error = str(e)
         self._frames = frames
@@ -235,9 +243,18 @@ class VoiceCapture:
         if self._thread:
             self._thread.join(timeout=2)
         path = Path(tempfile.gettempdir()) / "ra_voice_turn.wav"
+        frames = b"".join(self._frames)
+        try:
+            arr = np.frombuffer(frames, dtype="int16").astype("float32")
+            pk = float(np.abs(arr).max()) if arr.size else 0.0
+            if pk > 1:
+                arr = arr * (0.55 * 32767.0 / pk)
+                frames = arr.astype("int16").tobytes()
+        except Exception:
+            pass
         with wave.open(str(path), "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(self.sr)
-            w.writeframes(b"".join(self._frames))
+            w.writeframes(frames)
         return str(path)

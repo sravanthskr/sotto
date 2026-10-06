@@ -380,7 +380,17 @@ class Api:
         """Hands-free listen cycle (server-side): records until you stop
         talking, then transcribes and runs the turn. Used by the pill,
         the global hotkey and the in-app mic button."""
-        if self._busy:
+        if self._busy or getattr(self, "_tts", False):
+            if getattr(self, "_tts", False):
+                self._speak_muted = True
+                try:
+                    self.stop_speaking()
+                except Exception:
+                    pass
+                self._play_cue("stop")
+                _log("voice_turn: interrupted speech -> will listen when idle")
+                threading.Thread(target=self._listen_when_idle, daemon=True).start()
+                return json.dumps(True)
             self._push({"type": "notice", "text": "Still on the last thing - one second."})
             self._push({"type": "state", "name": "idle"})
             return json.dumps(False)
@@ -977,6 +987,164 @@ class Api:
             self._ov_mic = None
             self._ov_listen = False
 
+    def _play_cue(self, which="wake"):
+        """Play a clean production-style cue; fall back to a soft beep."""
+        try:
+            import winsound
+            import os as _os
+            base = _os.path.dirname(_os.path.abspath(__file__))
+            f = _os.path.join(base, "assets", "chime_up.wav" if which == "wake" else "chime_down.wav")
+            if _os.path.exists(f):
+                winsound.PlaySound(f, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+                return
+        except Exception:
+            pass
+        try:
+            import winsound
+            winsound.Beep(1046 if which == "wake" else 659, 90)
+        except Exception:
+            pass
+
+    def _wake_match(self, low):
+        """Find the wake phrase; returns (phrase, index) or (None, -1)."""
+        try:
+            from config import load_settings as _ls
+            w = str(_ls().get("wake_word", "hey sotto") or "hey sotto").strip().lower()
+        except Exception:
+            w = "hey sotto"
+        phrases = []
+        if w:
+            phrases.append(w)
+        for extra in ("hey sotto", "hey soto", "hey sato", "hey shato", "hey shoto",
+                      "ok sotto", "ok soto", "ok sato", "okay sotto", "okay soto", "okay sato",
+                      "hi sotto", "hi sato", "sotto", "soto", "sato", "shato", "shoto", "satoh", "soda"):
+            if extra not in phrases:
+                phrases.append(extra)
+        for ph in phrases:
+            i = low.find(ph)
+            if i >= 0:
+                return ph, i
+        try:
+            import difflib
+            import re as _re2
+            for m in _re2.finditer(r"[a-z']+", low):
+                wrd = m.group(0)
+                if len(wrd) < 4:
+                    continue
+                for tgt in ("sotto", "soto", "sato", "shato", "shoto"):
+                    if difflib.SequenceMatcher(None, wrd, tgt).ratio() >= 0.75:
+                        return wrd, m.start()
+        except Exception:
+            pass
+        return None, -1
+
+    def _best_rest(self, text, phrase):
+        """Largest non-wake fragment of a transcript (handles repeated wake words)."""
+        import re as _re4
+        try:
+            parts = _re4.split(_re4.escape(phrase), text, flags=_re4.IGNORECASE)
+        except Exception:
+            parts = [text]
+        wake_words = {"hey", "hi", "ok", "okay", "hello", "yo", "sotto", "soto", "sato",
+                      "shato", "shoto", "satoh", "soda", "a", "the"}
+        best = ""
+        for p in parts:
+            p = p.strip(" ,.!?;:-")
+            if len(p) < 2:
+                continue
+            words = [wd.strip(",.!?;:-") for wd in p.lower().split()]
+            if words and all(wd in wake_words for wd in words):
+                continue
+            if len(p.split()) > len(best.split()):
+                best = p
+        return best
+
+    def _listen_when_idle(self, send_text=None):
+        """After an interrupt: wait for the current turn to wind down, then act."""
+        t0 = time.time()
+        while time.time() - t0 < 25:
+            if not self._busy and not getattr(self, "_voice_active", False) and not getattr(self, "_tts", False):
+                break
+            time.sleep(0.3)
+        try:
+            self._speak_muted = False
+            if send_text:
+                self._push({"type": "user_text", "text": send_text})
+                self._ov_turn = True
+                self.send(send_text)
+            else:
+                self.voice_turn()
+        except Exception as e:
+            _log(f"listen_when_idle error: {e}")
+
+    def _tts_monitor_once(self):
+        """While Sotto is speaking: listen for stop-words or a new wake request."""
+        if getattr(self, "_ov_mic", None) or getattr(self, "_mic", None):
+            time.sleep(0.3)
+            return
+        try:
+            from audio import VoiceCapture
+            try:
+                from config import load_settings as _lset
+                _s = _lset()
+            except Exception:
+                _s = {}
+            vad_mode = int(_s.get("vad_mode", 3) or 3)
+            cap = VoiceCapture(end_silence=0.5, no_speech_timeout=1800.0, max_len=3.2, vad_mode=vad_mode)
+            cap.start(should_stop=lambda: bool(not self._tts or not self._wake_on))
+            cap.wait(30.0)
+            if not cap._done.is_set():
+                cap.stop_now()
+            wav = cap.stop()
+            if not cap.heard or not self._tts or not self._wake_on:
+                return
+            txt, _e = voice.transcribe_wav(wav)
+            text = (txt or "").strip()
+            if not text:
+                return
+            low = " ".join(text.lower().strip(" .,!?;:-").split())
+            if not low:
+                return
+            spoken = ((getattr(self, "_ov_said", "") or "") + ". " + (getattr(self, "_ov_final", "") or "")).lower()
+            if spoken.strip(" ."):
+                try:
+                    import difflib as _df
+                    for seg in spoken.split("."):
+                        seg = " ".join(seg.strip(" .,!?;:-").split())
+                        if len(seg) >= 6 and (low in seg or _df.SequenceMatcher(None, low, seg).ratio() >= 0.72):
+                            return
+                except Exception:
+                    pass
+            words = low.split()
+            stops = ("stop", "stop it", "sotto stop", "quiet", "be quiet", "shut up", "shut it",
+                     "pause", "sotto pause", "hold on", "hold it", "cancel that", "never mind",
+                     "nevermind", "enough", "stop talking", "silence", "sotto quiet")
+            hit = False
+            for ph in stops:
+                if low == ph or low.startswith(ph + " ") or (ph in low and len(words) <= 4):
+                    hit = True
+                    break
+            if hit:
+                _log(f"voice: interrupt word {low!r}")
+                self._speak_muted = True
+                self.stop_speaking()
+                self._play_cue("stop")
+                threading.Thread(target=self._listen_when_idle, daemon=True).start()
+                time.sleep(1.2)
+                return
+            phrase, idx = self._wake_match(low)
+            if idx >= 0:
+                rest = self._best_rest(text, phrase)
+                _log(f"voice: interrupt wake {text!r} rest={rest!r}")
+                self._speak_muted = True
+                self.stop_speaking()
+                self._play_cue("wake")
+                threading.Thread(target=self._listen_when_idle, args=(rest or None,), daemon=True).start()
+                time.sleep(1.2)
+        except Exception as e:
+            _log(f"tts monitor error: {type(e).__name__}: {e}")
+            time.sleep(0.5)
+
     def _wake_loop(self):
         """Continuous background listening for the wake phrase.
 
@@ -994,7 +1162,10 @@ class Api:
             _log("wake-word: listener running (webrtcvad)")
             while self._wake_on:
                 time.sleep(0.2)
-                if (self._busy or getattr(self, "_mic", None) or getattr(self, "_tts", False)
+                if getattr(self, "_tts", False):
+                    self._tts_monitor_once()
+                    continue
+                if (self._busy or getattr(self, "_mic", None)
                         or getattr(self, "_ov_mic", None) or getattr(self, "_ov_listen", False)
                         or getattr(self, "_voice_active", False)
                         or time.time() < getattr(self, "_wake_hold", 0.0)):
@@ -1026,44 +1197,13 @@ class Api:
                 if not text:
                     continue
                 low = text.lower()
-                phrase, idx = None, -1
-                if kw and kw in low:
-                    phrase, idx = kw, low.find(kw)
-                if idx < 0:
-                    for extra in ("hey sotto", "hey soto", "hey sato", "hey shato", "hey shoto",
-                                  "ok sotto", "ok soto", "ok sato", "okay sotto", "okay soto", "okay sato",
-                                  "hi sotto", "hi sato", "sotto", "soto", "sato", "shato", "shoto", "satoh", "soda"):
-                        j = low.find(extra)
-                        if j >= 0:
-                            phrase, idx = extra, j
-                            break
-                if idx < 0:
-                    try:
-                        import difflib
-                        import re as _re3
-                        for m in _re3.finditer(r"[a-z']+", low):
-                            wrd = m.group(0)
-                            if len(wrd) < 4:
-                                continue
-                            for tgt in ("sotto", "soto", "sato", "shato", "shoto"):
-                                if difflib.SequenceMatcher(None, wrd, tgt).ratio() >= 0.75:
-                                    phrase, idx = wrd, m.start()
-                                    break
-                            if idx >= 0:
-                                break
-                    except Exception:
-                        pass
+                phrase, idx = self._wake_match(low)
                 if idx < 0:
                     _log(f"wake-word ignored {text[:70]!r} dur={st.get('dur')} peak={st.get('peak')}")
                     continue
-                rest = text[idx + len(phrase):].strip(" ,.!?;:-")
+                rest = self._best_rest(text, phrase)
                 _log(f"wake-word heard: {text!r} rest={rest!r}")
-                try:
-                    import winsound
-                    winsound.Beep(988, 70)
-                    winsound.Beep(1319, 90)
-                except Exception:
-                    pass
+                self._play_cue("wake")
                 self._activate_visual()
                 if rest:
                     self._push({"type": "user_text", "text": rest})
@@ -1071,7 +1211,7 @@ class Api:
                     threading.Thread(target=self.send, args=(rest,),
                                      daemon=True).start()
                 else:
-                    threading.Thread(target=self._listen_and_send,
+                    threading.Thread(target=self.voice_turn,
                                      daemon=True).start()
                 time.sleep(2)
         except Exception as e:
