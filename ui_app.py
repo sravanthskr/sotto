@@ -135,12 +135,12 @@ def main():
 
     window = webview.create_window(
         "Sotto",
-        str(INDEX),
+        str(INDEX) + "?v=" + str(int(INDEX.stat().st_mtime)),
         js_api=api,
         width=1180,
         height=780,
         min_size=(760, 580),
-        background_color="#14171B",
+        background_color="#1A1E24",
     )
     _apply_window_icon(window)
 

@@ -305,7 +305,7 @@ def _setup_overlay(win, hide_after=False):
 def create_overlay_window(api):
     win = webview.create_window(
         "SottoOverlay",
-        str(OVERLAY),
+        str(OVERLAY) + "?v=" + str(int(OVERLAY.stat().st_mtime)),
         js_api=api,
         width=WIN_W,
         height=WIN_H,
@@ -401,7 +401,7 @@ def start_overlay_controller(api, overlay_win, main_win):
             if _setup_overlay(overlay_win, hide_after=False):
                 try:
                     _STATE["loaded"] = False
-                    overlay_win.load_url(str(OVERLAY))
+                    overlay_win.load_url(str(OVERLAY) + '?v=' + str(int(OVERLAY.stat().st_mtime)))
                 except Exception:
                     pass
                 time.sleep(0.45)

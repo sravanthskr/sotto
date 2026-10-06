@@ -8,16 +8,16 @@
 
 :root {
   /* —— surfaces & text (dark, primary) —— */
-  --bg:            #14171B;   /* page background — near-black ink, never #000 */
-  --bg-sunken:     #101317;   /* wells: inputs, code blocks */
-  --surface:       #1A1E24;   /* cards, modules */
-  --surface-2:     #21262D;   /* raised: sheets, menus, controls */
-  --surface-3:     #282E36;   /* overlay / hover-raise / toasts */
-  --line:          rgba(226,232,240,.10);   /* hairline */
-  --line-strong:   rgba(226,232,240,.18);   /* inputs, stronger dividers */
-  --ink:           #EDF0F2;   /* primary text */
-  --ink-2:         #B7C0C8;   /* secondary text */
-  --ink-3:         #8C959F;   /* tertiary / meta */
+  --bg:            #1A1E24;   /* page background — near-black ink, never #000 */
+  --bg-sunken:     #15181D;   /* wells: inputs, code blocks */
+  --surface:       #21262D;   /* cards, modules */
+  --surface-2:     #29303A;   /* raised: sheets, menus, controls */
+  --surface-3:     #323A45;   /* overlay / hover-raise / toasts */
+  --line:          rgba(226,232,240,.12);   /* hairline */
+  --line-strong:   rgba(226,232,240,.20);   /* inputs, stronger dividers */
+  --ink:           #EFF2F4;   /* primary text */
+  --ink-2:         #C4CCD4;   /* secondary text */
+  --ink-3:         #9AA4AE;   /* tertiary / meta */
 
   /* —— accent: "glacier" (single accent; max 2 visible placements per screen) —— */
   --accent:        #A9CCDE;

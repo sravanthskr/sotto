@@ -354,7 +354,7 @@ body.speaking .mic .stop{opacity:1}
 .switch{width:44px;height:26px;border-radius:999px;background:var(--surface-3);position:relative;flex:none;transition:background var(--dur-f) var(--ease)}
 .switch[aria-pressed="true"]{background:var(--accent)}
 .switch i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--ink-2);transition:left var(--dur-f) var(--ease),background var(--dur-f) var(--ease)}
-.switch[aria-pressed="true"] i{left:21px;background:#14171B}
+.switch[aria-pressed="true"] i{left:21px;background:#1A1E24}
 [data-theme="light"] .switch[aria-pressed="true"] i{background:#fff}
 .switch[disabled]{opacity:.4;cursor:default}
 .rowbetween{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
