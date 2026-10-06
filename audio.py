@@ -20,6 +20,78 @@ from config import MIC_DEVICE
 _MIC_LOCK = threading.Lock()
 
 
+class _MicHub:
+    """One persistent 48 kHz microphone stream shared by every listener.
+
+    Opening/closing MME streams in this environment can stall for tens of
+    seconds; the hub opens the mic once and hands the same live feed to
+    all consumers via per-subscriber queues."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._subs = []
+        self._thread = None
+        self.rate = 48000
+        self.down = 3
+        self.error = None
+
+    def subscribe(self):
+        import queue as _q
+        q = _q.Queue(maxsize=400)
+        with self._lock:
+            self._subs.append(q)
+        if self._thread is None:
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+        return q
+
+    def unsubscribe(self, q):
+        with self._lock:
+            if q in self._subs:
+                self._subs.remove(q)
+
+    def _run(self):
+        while True:
+            try:
+                dev = None
+                try:
+                    from config import load_settings
+                    dev = load_settings().get("mic_device")
+                except Exception:
+                    dev = None
+                if dev is None:
+                    dev = MIC_DEVICE
+
+                def cb(indata, frames, tinfo, status):
+                    b = bytes(indata)
+                    with self._lock:
+                        subs = list(self._subs)
+                    for qq in subs:
+                        try:
+                            qq.put_nowait(b)
+                        except Exception:
+                            pass
+
+                with sd.RawInputStream(samplerate=48000, channels=1, dtype="int16",
+                                       blocksize=1440, callback=cb, device=dev):
+                    self.error = None
+                    while True:
+                        time.sleep(0.25)
+            except Exception as e:
+                self.error = str(e)
+                time.sleep(3.0)
+
+
+_HUB = None
+
+
+def get_hub():
+    global _HUB
+    if _HUB is None:
+        _HUB = _MicHub()
+    return _HUB
+
+
 class MicStream:
     def __init__(self, device=None, samplerate=16000):
         self.device = MIC_DEVICE if device is None else device
@@ -127,18 +199,13 @@ class VoiceCapture:
         self._thread.start()
 
     def _run(self):
-        import queue
+        import queue as _q
         from collections import deque
-        cap_sr = self.sr
-        down = 1
-        if int(self.sr) == 16000:
-            cap_sr, down = 48000, 3
-        frame_b = int(cap_sr * 0.03) * 2          # 30 ms int16
-        q = queue.Queue()
-
-        def callback(indata, frames, tinfo, status):
-            q.put(bytes(indata))
-
+        hub = get_hub()
+        hubq = hub.subscribe()
+        cap_sr = hub.rate
+        down = hub.down
+        frame_b = int(cap_sr * 0.03) * 2
         try:
             import webrtcvad
             vad = webrtcvad.Vad(self.vad_mode)
@@ -156,105 +223,97 @@ class VoiceCapture:
         recv = 0
         t0 = time.time()
         try:
-            if not _MIC_LOCK.acquire(timeout=8):
-                raise RuntimeError("microphone busy")
-            try:
-                with sd.RawInputStream(samplerate=self.sr, channels=1, dtype="int16",
-                                       blocksize=frame_b // 2, callback=callback,
-                                       device=self.device):
-                    while True:
-                        if self._force:
-                            if not started:
-                                self.canceled = True
-                            break
-                        if self._should_stop and self._should_stop():
-                            if not started:
-                                self.canceled = True
-                            break
-                        el = time.time() - t0
-                        try:
-                            raw = q.get(timeout=0.1)
-                        except queue.Empty:
-                            raw = None
-                        if raw is None:
-                            if not started and el > self.no_speech_timeout:
-                                break
-                            if started and el > self.max_len:
-                                break
-                            continue
-                        if len(raw) < frame_b:
-                            continue
-                        raw = raw[:frame_b]
-                        if down > 1:
-                            _a = np.frombuffer(raw, dtype="int16")
-                            _a = _a[:(len(_a) // down) * down].reshape(-1, down).mean(axis=1).astype("int16")
-                            raw = _a.tobytes()
-                        recv += 1
-                        smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
-                        rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
-                        if rms > gpeak:
-                            gpeak = rms
-                        elif gpeak > 0:
-                            gpeak *= 0.9995
-                        if rms > peak:
-                            peak = rms
-                        self.level = min(1.0, rms / 0.25)
-                        if vad is not None:
-                            try:
-                                vad_speech = vad.is_speech(raw, self.sr)
-                            except Exception:
-                                vad_speech = False
-                        else:
-                            vad_speech = True
-                        # noise floor: tracks the quietest level the mic shows
-                        if floor is None:
-                            floor = rms
-                        elif rms < floor * 1.5:
-                            floor = floor * 0.98 + rms * 0.02
-                        else:
-                            floor = floor * 1.001
-                        gate = max(floor * 1.6, 0.015)
-                        speech = bool(vad_speech and rms > gate)
-                        speech2 = bool(vad_speech and rms > max(floor * 1.15, 0.010))
-                        if not started:
-                            preroll.append(raw)
-                            voiced = voiced + 1 if speech else 0
-                            voiced2 = voiced2 + 1 if speech2 else 0
-                            if voiced >= 3 or voiced2 >= 14:
-                                started = True
-                                self.heard = True
-                                frames = list(preroll)
-                                self.stats["onset"] = round(el, 2)
-                                self.stats["floor"] = round(floor, 4)
-                        else:
-                            frames.append(raw)
-                            unvoiced = 0 if speech else unvoiced + 1
-                            keep = int(max(3, round(self.end_silence / 0.03)))
-                            if unvoiced >= keep:
-                                break
-                            if el > self.max_len:
-                                break
-                        if not started and el > self.no_speech_timeout:
-                            break
-            finally:
-                _MIC_LOCK.release()
+            while True:
+                if self._force:
+                    if not started:
+                        self.canceled = True
+                    break
+                if self._should_stop and self._should_stop():
+                    if not started:
+                        self.canceled = True
+                    break
+                el = time.time() - t0
+                try:
+                    raw = hubq.get(timeout=0.1)
+                except _q.Empty:
+                    raw = None
+                if raw is None:
+                    if not started and el > self.no_speech_timeout:
+                        break
+                    if started and el > self.max_len:
+                        break
+                    continue
+                if len(raw) < frame_b:
+                    continue
+                raw = raw[:frame_b]
+                if down > 1:
+                    _a = np.frombuffer(raw, dtype="int16")
+                    _a = _a[:(len(_a) // down) * down].reshape(-1, down).mean(axis=1).astype("int16")
+                    raw = _a.tobytes()
+                recv += 1
+                smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
+                rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
+                if rms > gpeak:
+                    gpeak = rms
+                elif gpeak > 0:
+                    gpeak *= 0.9995
+                if rms > peak:
+                    peak = rms
+                self.level = min(1.0, rms / 0.25)
+                if vad is not None:
+                    try:
+                        vad_speech = vad.is_speech(raw, self.sr)
+                    except Exception:
+                        vad_speech = False
+                else:
+                    vad_speech = True
+                if floor is None:
+                    floor = rms
+                elif rms < floor * 1.5:
+                    floor = floor * 0.98 + rms * 0.02
+                else:
+                    floor = floor * 1.001
+                gate = max(floor * 1.6, 0.015)
+                speech = bool(vad_speech and rms > gate)
+                speech2 = bool(vad_speech and rms > max(floor * 1.15, 0.010))
+                if not started:
+                    preroll.append(raw)
+                    voiced = voiced + 1 if speech else 0
+                    voiced2 = voiced2 + 1 if speech2 else 0
+                    if voiced >= 3 or voiced2 >= 14:
+                        started = True
+                        self.heard = True
+                        frames = list(preroll)
+                        self.stats["onset"] = round(el, 2)
+                        self.stats["floor"] = round(floor, 4)
+                else:
+                    frames.append(raw)
+                    unvoiced = 0 if speech else unvoiced + 1
+                    keep = int(max(3, round(self.end_silence / 0.03)))
+                    if unvoiced >= keep:
+                        break
+                    if el > self.max_len:
+                        break
+                if not started and el > self.no_speech_timeout:
+                    break
         except Exception as e:
             self.error = str(e)
+        finally:
+            hub.unsubscribe(hubq)
         if self.error is None and recv == 0:
             self.error = "no mic frames (device stall)"
         self._frames = frames
         self.stats.update({
             "vad": "webrtc" if vad is not None else "level",
+            "cap_sr": cap_sr,
             "dur": round(len(frames) * 0.03, 2),
             "peak": round(peak, 4),
-            "floor_final": round(floor or 0.0, 4),
-            "cap_sr": cap_sr,
             "gain_peak": round(gpeak, 4),
             "recv": recv,
+            "floor_final": round(floor or 0.0, 4),
             "frames": len(frames),
         })
         self._done.set()
-
     def stop_now(self):
         """Ask the capture to end immediately (thread-safe)."""
         self._force = True
@@ -268,7 +327,12 @@ class VoiceCapture:
         self._done.wait(60.0)
         if self._thread:
             self._thread.join(timeout=2)
-        path = Path(tempfile.gettempdir()) / "ra_voice_turn.wav"
+        try:
+            import uuid as _uuid
+            _name = "ra_voice_" + _uuid.uuid4().hex[:10] + ".wav"
+        except Exception:
+            _name = "ra_voice_turn.wav"
+        path = Path(tempfile.gettempdir()) / _name
         frames = b"".join(self._frames)
         try:
             arr = np.frombuffer(frames, dtype="int16").astype("float32")

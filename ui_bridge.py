@@ -412,7 +412,7 @@ class Api:
             try:
                 from audio import VoiceCapture
                 self._wake_hold = time.time() + 4.0
-                time.sleep(0.2)   # let a wake-word capture release the mic
+                time.sleep(0.1)   # settle before capturing
                 try:
                     from config import load_settings as _lset
                     _s = _lset()
@@ -420,7 +420,7 @@ class Api:
                     _s = {}
                 end_sil = float(_s.get("voice_end_silence", 0.9) or 0.9)
                 vad_mode = int(_s.get("vad_mode", 2) or 2)
-                cap = VoiceCapture(end_silence=end_sil, vad_mode=vad_mode)
+                cap = VoiceCapture(end_silence=end_sil, vad_mode=vad_mode, max_len=18.0)
                 cap.start(should_stop=lambda: bool(self._voice_stop_req or self._voice_cancel_req))
                 self._mic = cap
                 # who owns the spoken reply? the pill/hidden case speaks itself
@@ -984,7 +984,7 @@ class Api:
             end_sil = float(_s.get("voice_end_silence", 0.9) or 0.9)
             vad_mode = int(_s.get("vad_mode", 2) or 2)
             self._wake_hold = time.time() + 4.0
-            cap = VoiceCapture(end_silence=end_sil, vad_mode=vad_mode)
+            cap = VoiceCapture(end_silence=end_sil, vad_mode=vad_mode, max_len=18.0)
             self._ov_listen = True
             self._ov_mic = cap
             self._push({"type": "state", "name": "listening"})
