@@ -412,7 +412,7 @@ class Api:
             try:
                 from audio import VoiceCapture
                 self._wake_hold = time.time() + 4.0
-                time.sleep(0.45)   # let a wake-word capture release the mic
+                time.sleep(0.2)   # let a wake-word capture release the mic
                 try:
                     from config import load_settings as _lset
                     _s = _lset()
@@ -441,6 +441,22 @@ class Api:
                 _log(f"voice_turn: stop heard={cap.heard} cancel={self._voice_cancel_req} "
                      f"vad={st.get('vad')} dur={st.get('dur')} peak={st.get('peak')} "
                      f"text={str(text)[:110]!r} err={err}")
+                if (not text) and (not self._voice_cancel_req) and not cap.error \
+                        and float(st.get("dur") or 0) < 2.6:
+                    try:
+                        self._play_cue("wake")
+                        cap2 = VoiceCapture(end_silence=end_sil, vad_mode=vad_mode)
+                        cap2.start(should_stop=lambda: bool(self._voice_stop_req or self._voice_cancel_req))
+                        self._mic = cap2
+                        cap2.wait()
+                        wav2 = cap2.stop()
+                        if not self._voice_cancel_req and cap2.heard:
+                            text, err = voice.transcribe_wav(wav2)
+                        st2 = cap2.stats or {}
+                        _log(f"voice_turn retry: heard={cap2.heard} dur={st2.get('dur')} "
+                             f"text={str(text)[:110]!r} err={err}")
+                    except Exception:
+                        pass
             except Exception as e:
                 _log(f"voice_turn error: {type(e).__name__}: {e}")
             finally:
@@ -453,7 +469,13 @@ class Api:
                 return
             text = (text or "").strip()
             if not text:
-                self._push({"type": "notice", "text": "I didn't quite catch that."})
+                _caperr = ""
+                try:
+                    _caperr = (cap.error if cap else "") or ""
+                except Exception:
+                    _caperr = ""
+                msg = "Microphone hiccup - I couldn't hear just now." if _caperr else "I didn't quite catch that."
+                self._push({"type": "notice", "text": msg})
                 self._push({"type": "state", "name": "idle"})
                 return
             self._push({"type": "user_text", "text": text})
@@ -975,7 +997,13 @@ class Api:
             text, err = voice.transcribe_wav(wav)
             text = (text or "").strip()
             if not text:
-                self._push({"type": "notice", "text": "I didn't quite catch that."})
+                _caperr = ""
+                try:
+                    _caperr = (cap.error if cap else "") or ""
+                except Exception:
+                    _caperr = ""
+                msg = "Microphone hiccup - I couldn't hear just now." if _caperr else "I didn't quite catch that."
+                self._push({"type": "notice", "text": msg})
                 self._push({"type": "state", "name": "idle"})
                 return
             self._push({"type": "user_text", "text": text})
@@ -1105,6 +1133,7 @@ class Api:
             low = " ".join(text.lower().strip(" .,!?;:-").split())
             if not low:
                 return
+            _log(f"voice: monitor heard {low[:60]!r}")
             spoken = ((getattr(self, "_ov_said", "") or "") + ". " + (getattr(self, "_ov_final", "") or "")).lower()
             if spoken.strip(" ."):
                 try:
@@ -1172,7 +1201,8 @@ class Api:
                     continue
                 kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
                 vad_mode = int(load_settings().get("vad_mode", 2) or 2)
-                cap = VoiceCapture(end_silence=0.7, no_speech_timeout=1800.0, max_len=12.0, vad_mode=vad_mode)
+                _log("wake-word: capture starting")
+                cap = VoiceCapture(end_silence=0.7, no_speech_timeout=480.0, max_len=12.0, vad_mode=vad_mode)
                 cap.start(should_stop=lambda: bool(
                     not self._wake_on or self._busy or getattr(self, "_mic", None)
                     or getattr(self, "_tts", False) or getattr(self, "_voice_active", False)
@@ -1203,9 +1233,9 @@ class Api:
                     continue
                 rest = self._best_rest(text, phrase)
                 _log(f"wake-word heard: {text!r} rest={rest!r}")
-                self._play_cue("wake")
                 self._activate_visual()
                 if rest:
+                    self._play_cue("wake")
                     self._push({"type": "user_text", "text": rest})
                     self._ov_turn = True
                     threading.Thread(target=self.send, args=(rest,),
@@ -1213,6 +1243,8 @@ class Api:
                 else:
                     threading.Thread(target=self.voice_turn,
                                      daemon=True).start()
+                    time.sleep(0.35)
+                    self._play_cue("wake")
                 time.sleep(2)
         except Exception as e:
             _log(f"wake-word loop error: {e}")

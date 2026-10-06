@@ -142,9 +142,11 @@ class VoiceCapture:
         unvoiced = 0
         floor = None
         peak = 0.0
+        gpeak = 0.0
+        recv = 0
         t0 = time.time()
         try:
-            if not _MIC_LOCK.acquire(timeout=15):
+            if not _MIC_LOCK.acquire(timeout=8):
                 raise RuntimeError("microphone busy")
             try:
                 with sd.RawInputStream(samplerate=self.sr, channels=1, dtype="int16",
@@ -173,7 +175,17 @@ class VoiceCapture:
                         if len(raw) < frame_b:
                             continue
                         raw = raw[:frame_b]
+                        recv += 1
                         smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
+                        rms0 = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
+                        if rms0 > gpeak:
+                            gpeak = rms0
+                        elif gpeak > 0:
+                            gpeak *= 0.9995
+                        gain = 2.5 if gpeak < 0.12 else (1.8 if gpeak < 0.28 else 1.0)
+                        if gain != 1.0:
+                            smp = np.clip(smp * gain, -0.98, 0.98)
+                            raw = (smp * 32767.0).astype("int16").tobytes()
                         rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
                         if rms > peak:
                             peak = rms
@@ -219,12 +231,16 @@ class VoiceCapture:
                 _MIC_LOCK.release()
         except Exception as e:
             self.error = str(e)
+        if self.error is None and recv == 0:
+            self.error = "no mic frames (device stall)"
         self._frames = frames
         self.stats.update({
             "vad": "webrtc" if vad is not None else "level",
             "dur": round(len(frames) * 0.03, 2),
             "peak": round(peak, 4),
             "floor_final": round(floor or 0.0, 4),
+            "gain_peak": round(gpeak, 4),
+            "recv": recv,
             "frames": len(frames),
         })
         self._done.set()
