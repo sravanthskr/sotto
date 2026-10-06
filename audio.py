@@ -48,7 +48,13 @@ class MicStream:
                 self.level = min(1.0, rms / 3000.0)
 
         try:
-            with sd.RawInputStream(samplerate=self.sr, channels=1, dtype="int16",
+            if down > 1:
+                try:
+                    sd.check_input_settings(device=self.device, samplerate=cap_sr, channels=1, dtype="int16")
+                except Exception:
+                    cap_sr, down = self.sr, 1
+                    frame_b = int(cap_sr * 0.03) * 2
+            with sd.RawInputStream(samplerate=cap_sr, channels=1, dtype="int16",
                                    blocksize=1024, callback=callback, device=self.device):
                 while not self._stop.is_set():
                     sd.sleep(25)
@@ -123,7 +129,11 @@ class VoiceCapture:
     def _run(self):
         import queue
         from collections import deque
-        frame_b = int(self.sr * 0.03) * 2          # 30 ms int16
+        cap_sr = self.sr
+        down = 1
+        if int(self.sr) == 16000:
+            cap_sr, down = 48000, 3
+        frame_b = int(cap_sr * 0.03) * 2          # 30 ms int16
         q = queue.Queue()
 
         def callback(indata, frames, tinfo, status):
@@ -175,6 +185,10 @@ class VoiceCapture:
                         if len(raw) < frame_b:
                             continue
                         raw = raw[:frame_b]
+                        if down > 1:
+                            _a = np.frombuffer(raw, dtype="int16")
+                            _a = _a[:(len(_a) // down) * down].reshape(-1, down).mean(axis=1).astype("int16")
+                            raw = _a.tobytes()
                         recv += 1
                         smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
                         rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
@@ -234,6 +248,7 @@ class VoiceCapture:
             "dur": round(len(frames) * 0.03, 2),
             "peak": round(peak, 4),
             "floor_final": round(floor or 0.0, 4),
+            "cap_sr": cap_sr,
             "gain_peak": round(gpeak, 4),
             "recv": recv,
             "frames": len(frames),

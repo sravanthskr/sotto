@@ -1201,6 +1201,9 @@ class Api:
                     continue
                 kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
                 vad_mode = int(load_settings().get("vad_mode", 2) or 2)
+                if getattr(self, "_wake_empty_streak", 0) >= 3:
+                    time.sleep(6)
+                    self._wake_empty_streak = 0
                 _log("wake-word: capture starting")
                 cap = VoiceCapture(end_silence=0.7, no_speech_timeout=480.0, max_len=12.0, vad_mode=vad_mode)
                 cap.start(should_stop=lambda: bool(
@@ -1225,8 +1228,10 @@ class Api:
                 text, _err = transcribe_wav(wav)
                 text = (text or "").strip()
                 if not text:
+                    self._wake_empty_streak = getattr(self, "_wake_empty_streak", 0) + 1
                     _log("wake-word: heard something but no words (skipped)")
                     continue
+                self._wake_empty_streak = 0
                 low = text.lower()
                 phrase, idx = self._wake_match(low)
                 if idx < 0:
