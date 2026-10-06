@@ -365,6 +365,9 @@ body.speaking .mic .stop{opacity:1}
 .setrow .s-info{display:flex;flex-direction:column;gap:1px;min-width:0}
 .setrow .s-lab{font-size:14px;color:var(--ink);letter-spacing:.005em}
 .setrow .s-sub{font-size:12px;color:var(--ink-3)}
+.sheet .s-body > *{flex:0 0 auto}
+.setrow .s-info{flex:1 1 auto}
+.setrow .s-sub{line-height:1.5;overflow-wrap:break-word}
 .selectwrap{position:relative;display:flex;align-items:center}
 .selectwrap select{
   appearance:none;-webkit-appearance:none;background:var(--bg-sunken);border:1px solid var(--line-strong);

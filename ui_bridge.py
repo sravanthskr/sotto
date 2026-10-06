@@ -956,7 +956,10 @@ class Api:
         if not w:
             return
         try:
-            w.restore()
+            import ctypes as _ck
+            _h = _ck.windll.user32.FindWindowW(None, w.title)
+            if _h and _ck.windll.user32.IsIconic(_h):
+                w.restore()   # un-minimise only; never un-maximise
             w.show()
         except Exception:
             pass

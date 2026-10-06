@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&family=Schibsted+Grotesk:wght@400;500;600&family=Spline+Sans+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <!-- ui assets carry a ?v= cache-buster: bump it whenever the file changes (WebView2 caches file:// resources) -->
 <link rel="stylesheet" href="sotto-tokens.css?v=2">
-<link rel="stylesheet" href="sotto.css?v=9">
+<link rel="stylesheet" href="sotto.css?v=10">
 </head>
 <body data-theme="light" data-mode="home" data-state="idle">
 
@@ -61,34 +61,34 @@
     </div>
 
     <div class="popmenu" id="quickMenu" hidden>
-      <span class="group-label" style="margin-bottom:-2px">Theme — Ctrl+Shift+D</span>
+      <span class="group-label" style="margin-bottom:-2px">Theme</span>
       <div class="seg" id="segThemeQuick" role="group" aria-label="Theme">
         <button data-theme-set="dark" aria-pressed="true">Dark</button>
         <button data-theme-set="light" aria-pressed="false">Light</button>
         <button data-theme-set="system" aria-pressed="false">System</button>
       </div>
       <div class="setrow">
-        <span class="s-info"><span class="s-lab">Speak replies aloud</span><span class="s-sub">Answers are read out when they arrive</span></span>
+        <span class="s-info"><span class="s-lab">Speak replies aloud</span></span>
         <button class="switch" id="speakSwitch" aria-pressed="true" aria-label="Speak replies aloud"><i></i></button>
       </div>
       <div class="setrow">
-        <span class="s-info"><span class="s-lab">Sound effects</span><span class="s-sub">Quiet cues when listening starts and finishes</span></span>
+        <span class="s-info"><span class="s-lab">Sound effects</span></span>
         <button class="switch" id="soundSwitch" aria-pressed="false" aria-label="Sound effects"><i></i></button>
       </div>
       <div class="setrow">
-        <span class="s-info"><span class="s-lab">Wake word</span><span class="s-sub">Talk without clicking — hands-free listening</span></span>
+        <span class="s-info"><span class="s-lab">Wake word</span></span>
         <button class="switch" id="wakeSwitch" aria-pressed="false" aria-label="Wake word"><i></i></button>
       </div>
       <div class="setrow">
-        <span class="s-info"><span class="s-lab">Wake phrase</span><span class="s-sub">What Sotto listens for before your request</span></span>
+        <span class="s-info"><span class="s-lab">Wake phrase</span></span>
         <div class="typewrap" style="max-width:230px;min-width:150px"><input id="wakeWordInput" placeholder="hey sotto" autocomplete="off" aria-label="Wake phrase"></div>
       </div>
       <div class="setrow">
-        <span class="s-info"><span class="s-lab">Floating overlay</span><span class="s-sub">A small pill over other apps showing what I'm doing</span></span>
+        <span class="s-info"><span class="s-lab">Floating overlay</span></span>
         <button class="switch" id="overlaySwitchQ" aria-pressed="true" aria-label="Floating overlay"><i></i></button>
       </div>
       <div class="setrow">
-        <span class="s-info"><span class="s-lab">Reduce motion</span><span class="s-sub">Calmer transitions — the wave becomes a still glow</span></span>
+        <span class="s-info"><span class="s-lab">Reduce motion</span></span>
         <button class="switch" id="motionSwitch" aria-pressed="false" aria-label="Reduce motion"><i></i></button>
       </div>
       <button class="btn-quiet" id="btnMoreSettings" style="font-size:13px;justify-content:flex-start;padding-left:0">All settings…</button>
@@ -210,49 +210,50 @@
   <div class="s-body">
     <span class="group-label">Voice</span>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Spoken voice</span><span class="s-sub">How replies sound aloud</span></div>
+      <div class="s-info"><span class="s-lab">Spoken voice</span></div>
       <div class="selectwrap">
         <select id="voiceSelect" aria-label="Spoken voice" data-autofocus></select>
         <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
       </div>
     </div>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Test voice</span><span class="s-sub">Hear the current voice once</span></div>
+      <div class="s-info"><span class="s-lab">Test voice</span></div>
       <button class="btn-silent" id="btnVoiceTest">Test</button>
     </div>
 
-    <span class="group-label">Keyboard</span>
+    <span class="group-label">Listening & Overlay</span>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Talk — hold</span><span class="s-sub">Hold to speak, release to send</span></div>
-      <span class="kbd">Space</span>
+      <div class="s-info"><span class="s-lab">Continuous listening</span></div>
+      <button class="switch" id="autoListenSwitch" aria-pressed="false" aria-label="Continuous listening"><i></i></button>
     </div>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Talk - from any app</span><span class="s-sub">Works even when Sotto is minimised</span></div>
-      <span class="kbd">Ctrl Space</span>
+      <div class="s-info"><span class="s-lab">Floating overlay</span></div>
+      <button class="switch" id="overlaySwitch" aria-pressed="true" aria-label="Floating overlay"><i></i></button>
     </div>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Type instead</span><span class="s-sub">Jump straight into the text input</span></div>
-      <span class="kbd">Ctrl K</span>
+      <div class="s-info"><span class="s-lab">Pill position</span></div>
+      <div class="selectwrap">
+        <select id="selPillPos" aria-label="Overlay pill position">
+          <option value="center">Top centre</option>
+          <option value="remember">Last position</option>
+          <option value="top_left">Top left</option>
+          <option value="top_right">Top right</option>
+          <option value="bottom_left">Bottom left</option>
+          <option value="bottom_right">Bottom right</option>
+          <option value="bottom_center">Bottom centre</option>
+        </select>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+      </div>
     </div>
+
+    <span class="group-label">Appearance</span>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">History</span><span class="s-sub">Open or close the history panel</span></div>
-      <span class="kbd">Ctrl Shift H</span>
-    </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Memory</span><span class="s-sub">Memory, notes, tasks and activity</span></div>
-      <span class="kbd">Ctrl Shift M</span>
-    </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Settings</span><span class="s-sub">Voice and assistant settings</span></div>
-      <span class="kbd">Ctrl Shift S</span>
-    </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Dark / light</span><span class="s-sub">Switch the theme instantly</span></div>
-      <span class="kbd">Ctrl Shift D</span>
-    </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Close / back</span><span class="s-sub">Dismiss any panel or input</span></div>
-      <span class="kbd">Esc</span>
+      <div class="s-info"><span class="s-lab">Theme</span></div>
+      <div class="seg" id="segThemeSettings" role="group" aria-label="Theme" style="min-width:184px">
+        <button data-theme-set="dark">Dark</button>
+        <button data-theme-set="light">Light</button>
+        <button data-theme-set="system">System</button>
+      </div>
     </div>
 
     <span class="group-label">Accounts</span>
@@ -261,12 +262,12 @@
       <button class="btn-silent" id="btnGoogleConnect">Sign in</button>
     </div>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Advanced setup</span><span class="s-sub">Alternatives for other mailboxes & calendars</span></div>
+      <div class="s-info"><span class="s-lab">Advanced setup</span></div>
       <button class="btn-quiet" id="btnAccAdvanced">Show</button>
     </div>
     <div id="accAdvanced" style="display:none">
       <div class="setrow" id="rowOwnerSetup">
-        <div class="s-info"><span class="s-lab">Google app setup</span><span class="s-sub" id="accOwner">One-time for the owner — hides once set</span></div>
+        <div class="s-info"><span class="s-lab">Google app setup</span><span class="s-sub" id="accOwner">One-time for the owner</span></div>
         <button class="btn-silent" id="btnGoogleSetup">Set up</button>
       </div>
       <div class="setrow">
@@ -279,48 +280,42 @@
       </div>
     </div>
 
-    <span class="group-label">Voice & Listening</span>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Continuous Listening</span><span class="s-sub">Auto-listen again after Sotto replies</span></div>
-      <label class="toggle-switch" style="display:inline-flex;align-items:center;cursor:pointer">
-        <input type="checkbox" id="chkAutoListen" style="accent-color:var(--accent);width:18px;height:18px">
-      </label>
-    </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Floating overlay</span><span class="s-sub">When you're in another app, a small pill floats on top showing whether I'm idle, listening, thinking or speaking. Off means I stay invisible in the background.</span></div>
-      <button class="switch" id="overlaySwitch" aria-pressed="true" aria-label="Floating overlay"><i></i></button>
-    </div>
-    <div class="setrow">
-      <div class="s-info"><span class="s-lab">Pill position</span><span class="s-sub">Where the floating pill appears. Drag the pill anywhere - it stays where you leave it.</span></div>
-      <div class="selectwrap">
-        <select id="selPillPos" aria-label="Overlay pill position">
-          <option value="center">Top centre (default)</option>
-          <option value="remember">Last position (where I dragged it)</option>
-          <option value="top_left">Top left</option>
-          <option value="top_right">Top right</option>
-          <option value="bottom_left">Bottom left</option>
-          <option value="bottom_right">Bottom right</option>
-          <option value="bottom_center">Bottom centre</option>
-        </select>
-        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
-      </div>
-    </div>
-
     <span class="group-label">Security</span>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Voice Lock & Passcode</span><span class="s-sub" id="lockStatusSub">App lock on startup</span></div>
+      <div class="s-info"><span class="s-lab">Voice Lock & Passcode</span><span class="s-sub" id="lockStatusSub">Disabled</span></div>
       <button class="btn-silent" id="btnLockSetup">Manage</button>
     </div>
 
     <span class="group-label">Computer</span>
     <div class="setrow">
-      <div class="s-info"><span class="s-lab">Installed apps</span><span class="s-sub" id="scanCount">Scan once so I can open your apps by name</span></div>
+      <div class="s-info"><span class="s-lab">Installed apps</span><span class="s-sub" id="scanCount">Open apps by name</span></div>
       <button class="btn-silent" id="btnScan">Scan now</button>
     </div>
 
-    <span class="group-label">Assistant</span>
-    <div class="hlist" id="providerList"></div>
-    <div class="hempty" id="providerEmpty" style="display:none"></div>
+    <span class="group-label">Advanced</span>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Keyboard shortcuts</span></div>
+      <button class="btn-quiet" id="btnShortcuts">Show</button>
+    </div>
+    <div id="shortcutList" style="display:none">
+      <div class="setrow"><div class="s-info"><span class="s-lab">Talk - hold</span></div><span class="kbd">Space</span></div>
+      <div class="setrow"><div class="s-info"><span class="s-lab">Talk - from any app</span></div><span class="kbd">Ctrl Space</span></div>
+      <div class="setrow"><div class="s-info"><span class="s-lab">Type instead</span></div><span class="kbd">Ctrl K</span></div>
+      <div class="setrow"><div class="s-info"><span class="s-lab">History</span></div><span class="kbd">Ctrl Shift H</span></div>
+      <div class="setrow"><div class="s-info"><span class="s-lab">Memory</span></div><span class="kbd">Ctrl Shift M</span></div>
+      <div class="setrow"><div class="s-info"><span class="s-lab">Settings</span></div><span class="kbd">Ctrl Shift S</span></div>
+      <div class="setrow"><div class="s-info"><span class="s-lab">Dark / light</span></div><span class="kbd">Ctrl Shift D</span></div>
+      <div class="setrow"><div class="s-info"><span class="s-lab">Close / back</span></div><span class="kbd">Esc</span></div>
+    </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">AI providers</span><span class="s-sub">Models behind Sotto</span></div>
+      <button class="btn-quiet" id="btnProviders">Show</button>
+    </div>
+    <div id="providerWrap" style="display:none">
+      <div class="hlist" id="providerList"></div>
+      <div class="hempty" id="providerEmpty" style="display:none"></div>
+    </div>
+
     <p class="n-mono" id="aboutLine" style="font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.06em;text-align:center">Sotto</p>
   </div>
 </section>
@@ -474,6 +469,6 @@
 <div class="toast" id="toast" role="status"><span class="tt" id="toastTag">SOTTO</span><span id="toastMsg"></span></div>
 <p class="sr-only" id="sr" role="status" aria-live="polite"></p>
 
-<script src="sotto.js?v=6"></script>
+<script src="sotto.js?v=8"></script>
 </body>
 </html>

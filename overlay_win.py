@@ -430,7 +430,9 @@ def start_overlay_controller(api, overlay_win, main_win):
                         _fade_then_hide(overlay_win)
                         visible = False
                     try:
-                        main_win.restore()
+                        _mh = _main_hwnd()
+                        if _mh and ctypes.windll.user32.IsIconic(_mh):
+                            main_win.restore()   # un-minimise only; never un-maximise
                         main_win.show()
                         u = ctypes.windll.user32
                         hwnd = _main_hwnd()

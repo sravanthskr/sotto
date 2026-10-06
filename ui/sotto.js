@@ -331,7 +331,7 @@
     body.dataset.theme = resolved;
     $('#btnTheme').innerHTML = resolved === 'light' ? MOON : SUN;
     $('#btnTheme').setAttribute('aria-label', resolved === 'light' ? 'Switch to dark theme' : 'Switch to light theme');
-    $$('#segThemeQuick button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === pref)));
+    $$('#segThemeQuick button, #segThemeSettings button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === pref)));
     try { localStorage.setItem('sotto-theme-v2', pref); } catch {}
     try { const _b = bridge(); if (_b && hasApi('set_theme')) _b.set_theme(resolved); } catch (e) {}
     sizeCanvas();
@@ -1373,6 +1373,16 @@
       $('#btnAccAdvanced').textContent = open ? 'Show' : 'Hide';
       if (!open) refreshAccounts();
     });
+    [['btnShortcuts', 'shortcutList'], ['btnProviders', 'providerWrap']].forEach((pair) => {
+      const btn = $('#' + pair[0]);
+      const box = $('#' + pair[1]);
+      if (!btn || !box) return;
+      btn.addEventListener('click', () => {
+        const open = box.style.display !== 'none';
+        box.style.display = open ? 'none' : 'block';
+        btn.textContent = open ? 'Show' : 'Hide';
+      });
+    });
     $('#btnGoogleSave').addEventListener('click', async () => {
       const cid = $('#gClientId').value.trim();
       const sec = $('#gClientSecret').value.trim();
@@ -1488,7 +1498,7 @@
         } catch {}
       });
     }
-    $$('#segThemeQuick button').forEach(b => b.addEventListener('click', () => applyThemePref(b.dataset.themeSet)));
+    $$('#segThemeQuick button, #segThemeSettings button').forEach(b => b.addEventListener('click', () => applyThemePref(b.dataset.themeSet)));
     $('#motionSwitch').addEventListener('click', (e) => {
       const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
       e.currentTarget.setAttribute('aria-pressed', String(on));
@@ -1498,13 +1508,14 @@
     });
 
     /* Auto-listen & Security Lock event listeners */
-    const chkAL = $('#chkAutoListen');
-    if (chkAL) {
-      chkAL.checked = autoListen;
-      chkAL.addEventListener('change', (e) => {
-        autoListen = e.target.checked;
+    const swAL = $('#autoListenSwitch');
+    if (swAL) {
+      swAL.setAttribute('aria-pressed', String(autoListen));
+      swAL.addEventListener('click', () => {
+        autoListen = swAL.getAttribute('aria-pressed') !== 'true';
+        swAL.setAttribute('aria-pressed', String(autoListen));
         try { localStorage.setItem('sotto_auto_listen', String(autoListen)); } catch {}
-        toast(autoListen ? 'Continuous listening enabled' : 'Continuous listening disabled', 'VOICE', 2000);
+        toast(autoListen ? 'Continuous listening on' : 'Continuous listening off', 'VOICE', 1800);
         if (autoListen) scheduleAutoListen();
       });
     }
