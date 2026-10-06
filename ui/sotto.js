@@ -618,9 +618,12 @@
   }
 
   let _idleTicks = 0;
+  let turnStartedAt = 0;
+  let lastRenderedTs = 0;
   async function idlePoll() {
     _idleTicks += 1;
-    if (_idleTicks % 34 === 1) { try { callIf('log', 'idlePoll tick ' + _idleTicks + ' hidden=' + document.hidden); } catch (err) {} }
+    if (turnActive && turnStartedAt && (Date.now() - turnStartedAt) > 90000) { turnActive = false; turnStartedAt = 0; callIf('log', 'turnActive watchdog reset'); }
+    if (_idleTicks % 34 === 1) { try { callIf('log', 'idlePoll tick ' + _idleTicks + ' hidden=' + document.hidden); } catch (err) {} if (!document.hidden) renderBackfill(); }
     if (turnActive) return;
     const api = bridge();
     if (!api || !hasApi('poll')) return;
@@ -642,8 +645,8 @@
     }
   }
   setInterval(idlePoll, 350);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) idlePoll(); });
-  window.addEventListener('focus', () => idlePoll());
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { idlePoll(); renderBackfill(); } });
+  window.addEventListener('focus', () => { idlePoll(); renderBackfill(); });
 
   async function send(text, viaVoice = false, isRetry = false) {
     text = (text || '').trim();
@@ -665,6 +668,8 @@
     turn.querySelector('.thinking')?.remove();
     let said = false;
     turnActive = true;
+    turnStartedAt = Date.now();
+    lastRenderedTs = Date.now() / 1000;
     const poll = setInterval(async () => {
       let events = [];
       try { events = JSON.parse((await api.poll()) || '[]'); } catch {}
@@ -746,6 +751,8 @@
         callIf('log', 'settle busy=false');
         clearInterval(poll);
         turnActive = false;
+        turnStartedAt = 0;
+        lastRenderedTs = Math.max(lastRenderedTs, Date.now() / 1000);
         if (state === 'thinking' || state === 'understanding') setState('responding');
         setTimeout(() => {
           if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
@@ -774,6 +781,8 @@
     if (!api || !hasApi('poll')) { addNotice(turn, 'The Python bridge is not connected.'); setState('idle'); return; }
     let said = false;
     turnActive = true;
+    turnStartedAt = Date.now();
+    lastRenderedTs = Date.now() / 1000;
     const poll = setInterval(async () => {
       let events = [];
       try { events = JSON.parse((await api.poll()) || '[]'); } catch {}
@@ -812,6 +821,8 @@
       if (!busy && events.length === 0) {
         clearInterval(poll);
         turnActive = false;
+        turnStartedAt = 0;
+        lastRenderedTs = Math.max(lastRenderedTs, Date.now() / 1000);
         setTimeout(() => {
           if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
           if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
@@ -819,6 +830,30 @@
         }, reducedMedia.matches ? 150 : 1200);
       }
     }, 90);
+  }
+
+  async function renderBackfill() {
+    const api = bridge();
+    if (!api || !hasApi('recent_turns')) return;
+    let data = null;
+    try { data = JSON.parse(await api.recent_turns(lastRenderedTs)); } catch { return; }
+    if (!data || !Array.isArray(data.items) || !data.items.length) return;
+    callIf('log', 'backfill: ' + data.items.length + ' messages');
+    let turn = null;
+    for (const m of data.items) {
+      try {
+        if (m.ts > lastRenderedTs) lastRenderedTs = m.ts;
+        if (m.role === 'user') {
+          turn = addTurn(m.text);
+          addIntent(turn, 'heard');
+        } else if (turn) {
+          const voice = addVoice(turn);
+          voice.textContent = m.text;
+          scrollDown();
+          turn = null;
+        }
+      } catch (err) {}
+    }
   }
 
   function addNotice(turn, text, tone = 'warn') {

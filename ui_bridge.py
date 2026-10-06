@@ -238,6 +238,27 @@ class Api:
         return json.dumps(self.store.rename(sid, title))
 
     # ---- chat ----------------------------------------------------------
+    def recent_turns(self, since=0.0):
+        """Conversation messages newer than `since` (display backfill sync)."""
+        try:
+            since = float(since or 0)
+        except Exception:
+            since = 0.0
+        out = []
+        try:
+            msgs = (self.session or {}).get("messages", []) if self.session else []
+            for m in msgs[-14:]:
+                try:
+                    ts = float(m.get("ts") or 0)
+                except Exception:
+                    ts = 0.0
+                if ts > since and (m.get("text") or "").strip():
+                    out.append({"role": m.get("role", "user"),
+                                "text": str(m.get("text"))[:4000], "ts": ts})
+        except Exception:
+            pass
+        return json.dumps({"items": out})
+
     def send(self, text):
         text = (text or "").strip()
         self._wake_hold = max(getattr(self, "_wake_hold", 0.0), time.time() + 1.5)
@@ -1142,7 +1163,7 @@ class Api:
             wav = cap.stop()
             if not cap.heard or not self._tts or not self._wake_on:
                 return
-            txt, _e = voice.transcribe_wav(wav)
+            txt, _e = voice.transcribe_wav(wav, initial_prompt="Stop. Wait. Quiet. Cancel.", vad_filter=False)
             text = (txt or "").strip()
             if not text:
                 return

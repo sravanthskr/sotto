@@ -102,6 +102,11 @@ _SINGLE_MUTEX = None
 
 
 def main():
+    try:
+        import faulthandler
+        faulthandler.enable(open(str(IPC_DIR / "crash.log"), "a", encoding="utf-8", buffering=1))
+    except Exception:
+        pass
     # Single instance: never run two Sotto apps at once.
     global _SINGLE_MUTEX
     try:
@@ -155,9 +160,32 @@ def main():
     start_overlay_controller(api, overlay, window)
 
     webview.start(private_mode=False, storage_path=str(STORAGE))
+    try:
+        from ui_bridge import _log as _L
+        _L("app: window closed - webview.start returned")
+    except Exception:
+        pass
 
     # App closed.
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback as _tb
+        try:
+            with open(str(IPC_DIR / "crash.log"), "a", encoding="utf-8") as f:
+                f.write("\n=== main() crashed ===\n")
+                _tb.print_exc(file=f)
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            from ui_bridge import _log as _L
+            _L("app: process exiting")
+        except Exception:
+            pass
