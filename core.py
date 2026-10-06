@@ -201,6 +201,28 @@ class Assistant:
                 return {"id": "textcall0", "type": "function",
                         "function": {"name": name, "arguments": json.dumps(args)}}
 
+            def _lenient_json(t):
+                try:
+                    return json.loads(t)
+                except Exception:
+                    pass
+                try:
+                    BS = chr(92)
+                    VALID = '"' + BS + '/bfnrtu'
+                    out = []
+                    i2 = 0
+                    while i2 < len(t):
+                        ch = t[i2]
+                        if ch == BS and i2 + 1 < len(t) and t[i2 + 1] not in VALID:
+                            i2 += 1
+                            continue
+                        out.append(ch)
+                        i2 += 1
+                    return json.loads("".join(out))
+                except Exception:
+                    pass
+                return None
+
             im = _re.search(r"<invoke\s+name=\"([^\"]+)\"", body)
             if im:
                 name = im.group(1)
@@ -219,14 +241,14 @@ class Assistant:
             m = _re.search(r"<tool_call>\s*([\s\S]*?)\s*</tool_call>", body, _re.I)
             if m:
                 try:
-                    cand = json.loads(m.group(1))
+                    cand = _lenient_json(m.group(1))
                 except Exception:
                     cand = None
             if cand is None:
                 jm = _re.search(r"\{[\s\S]*\}", body)
                 if jm:
                     try:
-                        cand = json.loads(jm.group(0))
+                        cand = _lenient_json(jm.group(0))
                     except Exception:
                         cand = None
             if not isinstance(cand, dict):
@@ -248,17 +270,21 @@ class Assistant:
                 args = name.get("arguments", args)
                 name = name.get("name")
             return _mk(name, args)
+        round_text = []
+
         def emit(chunk):
             if first["v"]:
                 self._status("speaking")
                 first["v"] = False
             spoken.append(chunk)
+            round_text.append(chunk)
             if self.on_text:
                 self.on_text(chunk)
 
         used_tools = False
         for _round in range(MAX_TOOL_ROUNDS):
             first["v"] = True
+            round_text.clear()
             self._status("thinking")
             message = ai_engine.stream_ai(messages, tools=tools.schemas(), on_text=emit)
             messages.append(message)
@@ -266,11 +292,15 @@ class Assistant:
 
             calls = message.get("tool_calls")
             if not calls:
-                recovered = _text_tool_call((message.get("content") or "").strip())
+                _content = (message.get("content") or "").strip() or "".join(round_text).strip()
+                recovered = _text_tool_call(_content)
                 if recovered:
                     calls = [recovered]
                     message["tool_calls"] = calls
                     message.pop("content", None)
+                elif _content and (_content.lstrip().startswith("{") or "<tool_call" in _content[:200]
+                                   or "<invoke" in _content[:200] or "<function=" in _content[:200]):
+                    print(f"[text-recovery-miss] {_content[:200]}")
             if not calls:
                 break
             used_tools = True

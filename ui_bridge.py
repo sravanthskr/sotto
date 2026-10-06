@@ -373,12 +373,15 @@ class Api:
                 _promise = False
                 _verbs = ("check", "look", "find", "see ", "verify", "scan", "search",
                           "get ", "pull up", "read", "review", "run", "try", "investigate")
-                if _pl and len(_pl) < 220 and not getattr(self, "_turn_tools", None):
+                if _pl and len(_pl) < 1200 and not getattr(self, "_turn_tools", None):
                     import re as _rp
                     _starts = (r"^i'?ll ", r"^i will ", r"^let me ", r"^i'?m going to ",
                                r"^i am going to ", r"^one moment", r"^hold on", r"^checking",
                                r"^i'?m checking", r"^give me a moment", r"^just a moment")
                     _promise = any(_rp.match(p, _pl) for p in _starts) and any(v in _pl for v in _verbs)
+                    if not _promise and "{" in _pl and ('"tool"' in _pl or '"name"' in _pl) \
+                            and ('"args"' in _pl or '"arguments"' in _pl):
+                        _promise = True
                 if _promise:
                     _log("promise-guard: only a promise, no action -> forcing a real attempt")
                     _nudge = ("Do not promise and do not narrate plans. Use your tools NOW to "
