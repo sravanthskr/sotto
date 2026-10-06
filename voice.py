@@ -369,14 +369,15 @@ def record_wav(path, seconds=4, device=None):
     return True, level, None
 
 
-def transcribe_wav(path):
+def transcribe_wav(path, initial_prompt=None, vad_filter=True):
     """Return (text, error). Uses faster-whisper when available, else Vosk."""
     model = _whisper()
     if model is not None:
         try:
             segments, _info = model.transcribe(
-                str(path), language="en", vad_filter=True,
-                condition_on_previous_text=False, beam_size=1)
+                str(path), language="en", vad_filter=vad_filter,
+                condition_on_previous_text=False, beam_size=1,
+                initial_prompt=initial_prompt)
             text = " ".join(seg.text.strip() for seg in segments).strip()
             return text, None
         except Exception as e:

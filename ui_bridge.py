@@ -1024,12 +1024,14 @@ class Api:
             f = _os.path.join(base, "assets", "chime_up.wav" if which == "wake" else "chime_down.wav")
             if _os.path.exists(f):
                 winsound.PlaySound(f, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+                _log(f"cue {which}: file")
                 return
         except Exception:
             pass
         try:
             import winsound
             winsound.Beep(1046 if which == "wake" else 659, 90)
+            _log(f"cue {which}: beep")
         except Exception:
             pass
 
@@ -1205,7 +1207,7 @@ class Api:
                     time.sleep(6)
                     self._wake_empty_streak = 0
                 _log("wake-word: capture starting")
-                cap = VoiceCapture(end_silence=0.7, no_speech_timeout=480.0, max_len=12.0, vad_mode=vad_mode)
+                cap = VoiceCapture(end_silence=0.45, no_speech_timeout=480.0, max_len=5.0, vad_mode=vad_mode)
                 cap.start(should_stop=lambda: bool(
                     not self._wake_on or self._busy or getattr(self, "_mic", None)
                     or getattr(self, "_tts", False) or getattr(self, "_voice_active", False)
@@ -1225,7 +1227,7 @@ class Api:
                 if float(st.get("peak", 1.0)) < 0.010:
                     _log(f"wake-word: low-level capture skipped peak={st.get('peak')}")
                     continue
-                text, _err = transcribe_wav(wav)
+                text, _err = transcribe_wav(wav, initial_prompt="Hey Sotto", vad_filter=False)
                 text = (text or "").strip()
                 if not text:
                     self._wake_empty_streak = getattr(self, "_wake_empty_streak", 0) + 1
