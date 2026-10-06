@@ -135,10 +135,27 @@ class Assistant:
             def _mk(name, args):
                 if not isinstance(name, str):
                     return None
-                name = name.strip()
+                name = name.strip().lower()
                 aliases = {"email": "email_summary", "gmail": "email_summary",
-                           "mail": "email_summary", "calendar": "calendar_today"}
+                           "mail": "email_summary", "calendar": "calendar_today",
+                           "open_app": "open_application", "open": "open_application",
+                           "launch_app": "open_application", "launch": "open_application",
+                           "open_program": "open_application", "open_url": "open_website",
+                           "browse": "open_website", "website": "open_website",
+                           "search": "search_web", "web_search": "search_web",
+                           "google": "search_web", "play": "play_media",
+                           "screenshot": "take_screenshot", "volume": "set_volume",
+                           "weather": "get_weather", "note": "add_note",
+                           "remind": "set_reminder"}
                 name = aliases.get(name, name)
+                if name not in tools.REGISTRY:
+                    try:
+                        import difflib
+                        close = difflib.get_close_matches(name, list(tools.REGISTRY.keys()), n=1, cutoff=0.8)
+                        if close:
+                            name = close[0]
+                    except Exception:
+                        pass
                 if name not in tools.REGISTRY:
                     return None
                 if isinstance(args, str):
@@ -148,6 +165,31 @@ class Assistant:
                         args = {}
                 if not isinstance(args, dict):
                     args = {}
+                try:
+                    schema = tools.REGISTRY[name]["schema"]["function"].get("parameters", {})
+                    allowed = list(schema.get("properties", {}).keys())
+                    if allowed:
+                        syn = {"app": "app_name", "application": "app_name", "program": "app_name",
+                               "name": "app_name", "target": "app_name", "title": "app_name",
+                               "site": "url", "link": "url", "website": "url", "address": "url",
+                               "q": "query", "text": "query", "search": "query", "term": "query",
+                               "what": "query", "level": "percent", "value": "percent"}
+                        fixed, used = {}, set()
+                        for k, v in args.items():
+                            key = k if k in allowed else None
+                            if key is None:
+                                cand = syn.get(str(k).lower())
+                                if cand in allowed and cand not in used:
+                                    key = cand
+                            if key is None:
+                                rest = [a for a in allowed if a not in used]
+                                key = rest[0] if rest else None
+                            if key:
+                                fixed[key] = v
+                                used.add(key)
+                        args = fixed
+                except Exception:
+                    pass
                 return {"id": "textcall0", "type": "function",
                         "function": {"name": name, "arguments": json.dumps(args)}}
 

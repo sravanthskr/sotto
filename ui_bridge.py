@@ -146,7 +146,9 @@ class Api:
         if not text:
             return
         low = text.lower()
-        if any(m in low for m in ("<tool_call", "<function=", "<parameter=")):
+        if any(m in low for m in ("<tool_call", "<function=", "<parameter=")) or (
+                low.lstrip().startswith("{") and ('"arguments"' in low or '"args"' in low)
+                and ('"name"' in low or '"tool"' in low or '"function"' in low) and len(low) < 1200):
             self._turn_leak = True
             _log("leak-guard: holding back XML tool-call text")
         self._turn_checked = True
