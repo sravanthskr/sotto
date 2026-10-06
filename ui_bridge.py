@@ -328,10 +328,24 @@ class Api:
                     except Exception:
                         pass
                 else:
-                    _log("EMPTY reply from ask() -> error event (turn never dies silently)")
-                    self._push({"type": "error",
-                                "text": "I didn't get a usable response - one more try..."})
-                    return
+                    _log("EMPTY reply from ask() -> one server-side retry")
+                    try:
+                        time.sleep(0.8)
+                        reply = self.assistant.ask(text) or ""
+                    except Exception as _e2:
+                        _log(f"retry ask failed: {_e2}")
+                        reply = ""
+                    if (reply or "").strip():
+                        rem2, self._buf = self._buf.strip(), ""
+                        if rem2:
+                            self._flush_say(rem2)
+                        if self._turn_leak:
+                            reply = self._repair(reply or "")
+                    else:
+                        _log("EMPTY reply after retry -> error event (turn never dies silently)")
+                        self._push({"type": "error",
+                                    "text": "I didn't get a usable response - one more try..."})
+                        return
             self._last_reply = reply
             self.session.setdefault("messages", []).append(
                 {"role": "assistant", "text": reply, "ts": time.time()})
