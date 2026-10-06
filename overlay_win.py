@@ -97,6 +97,25 @@ def _main_hwnd():
     return h
 
 
+_ALWAYS_CACHE = {"t": 0.0, "v": False}
+
+
+def _always_visible():
+    """True when the user wants the pill present whenever Sotto isn't focused."""
+    now = time.time()
+    if now - _ALWAYS_CACHE["t"] < 3.0:
+        return _ALWAYS_CACHE["v"]
+    v = False
+    try:
+        from config import load_settings
+        v = bool(load_settings().get("overlay_always_visible", False))
+    except Exception:
+        v = False
+    _ALWAYS_CACHE["t"] = now
+    _ALWAYS_CACHE["v"] = v
+    return v
+
+
 def _main_state():
     """focused | visible | minimized | hidden | none"""
     h = _main_hwnd()
@@ -347,9 +366,10 @@ def start_overlay_controller(api, overlay_win, main_win):
                     seen_focus = True
                     want = False
                 elif ms == "visible":
-                    # the app is still on screen: only speak up when the
-                    # assistant is actually doing something (no idle pill)
-                    want = snap_active
+                    # the app is still on screen: speak up when the
+                    # assistant is doing something, or when the user asked
+                    # for the pill to always be available
+                    want = snap_active or _always_visible()
                 elif ms in ("minimized", "hidden"):
                     # out of sight: quiet presence + live state
                     want = bool(seen_focus)

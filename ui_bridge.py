@@ -78,6 +78,7 @@ class Api:
         self._tts = False               # True while a say()/say_slow() call is speaking
         self._wake_on = False           # wake-word listener enabled (in-memory switch)
         self._wake_thread = None
+        self._wake_hold = 0.0
         from config import load_settings as _ls
         self._overlay_enabled = bool(_ls().get("overlay_enabled", True))
         self._voice_active = False
@@ -239,6 +240,7 @@ class Api:
     # ---- chat ----------------------------------------------------------
     def send(self, text):
         text = (text or "").strip()
+        self._wake_hold = max(getattr(self, "_wake_hold", 0.0), time.time() + 1.5)
         _log(f"send() called with {text[:120]!r}")
         if not text:
             return json.dumps({"ok": False})
@@ -396,12 +398,21 @@ class Api:
 
         def worker():
             text, err = "", None
-            mic = None
+            cap = None
             try:
-                from audio import MicStream
-                mic = MicStream()
-                mic.start()
-                self._mic = mic
+                from audio import VoiceCapture
+                self._wake_hold = time.time() + 4.0
+                time.sleep(0.45)   # let a wake-word capture release the mic
+                try:
+                    from config import load_settings as _lset
+                    _s = _lset()
+                except Exception:
+                    _s = {}
+                end_sil = float(_s.get("voice_end_silence", 0.9) or 0.9)
+                vad_mode = int(_s.get("vad_mode", 2) or 2)
+                cap = VoiceCapture(end_silence=end_sil, vad_mode=vad_mode)
+                cap.start(should_stop=lambda: bool(self._voice_stop_req or self._voice_cancel_req))
+                self._mic = cap
                 # who owns the spoken reply? the pill/hidden case speaks itself
                 try:
                     import ctypes as _c
@@ -412,53 +423,14 @@ class Api:
                     self._ov_turn = not (vis and fg == hwnd)
                 except Exception:
                     self._ov_turn = True
-                t0 = time.time()
-                noise = 0.0
-                heard = False
-                loud = 0
-                last_loud = t0
-                max_lvl = 0.0
-                try:
-                    from config import load_settings as _lset
-                    end_sil = float(_lset().get("voice_end_silence", 1.2) or 1.2)
-                except Exception:
-                    end_sil = 1.2
-                while True:
-                    time.sleep(0.05)
-                    if self._voice_cancel_req:
-                        break
-                    try:
-                        lvl = float(mic.level)
-                    except Exception:
-                        lvl = 0.0
-                    if lvl > max_lvl:
-                        max_lvl = lvl
-                    if not heard:
-                        noise = noise * 0.92 + lvl * 0.08
-                    thresh = max(0.055, noise * 3.2)
-                    if lvl > thresh:
-                        loud += 1
-                    else:
-                        loud = max(0, loud - 1)
-                    if loud >= 3:
-                        if not heard:
-                            _log("voice_turn: speech detected")
-                        heard = True
-                        last_loud = time.time()
-                    el = time.time() - t0
-                    silent_for = time.time() - last_loud
-                    if self._voice_stop_req:
-                        break
-                    if el > 1.0 and heard and silent_for > end_sil:
-                        break
-                    if not heard and el > 9.0:
-                        break
-                    if el > 45.0:
-                        break
-                wav = mic.stop()
-                if not self._voice_cancel_req:
+                cap.wait()
+                wav = cap.stop()
+                if not self._voice_cancel_req and cap.heard:
                     text, err = voice.transcribe_wav(wav)
-                _log(f"voice_turn: stop heard={heard} cancel={self._voice_cancel_req} maxLvl={max_lvl:.2f} text={str(text)[:110]!r} err={err}")
+                st = cap.stats or {}
+                _log(f"voice_turn: stop heard={cap.heard} cancel={self._voice_cancel_req} "
+                     f"vad={st.get('vad')} dur={st.get('dur')} peak={st.get('peak')} "
+                     f"text={str(text)[:110]!r} err={err}")
             except Exception as e:
                 _log(f"voice_turn error: {type(e).__name__}: {e}")
             finally:
@@ -474,7 +446,11 @@ class Api:
                 self._push({"type": "notice", "text": "I didn't quite catch that."})
                 self._push({"type": "state", "name": "idle"})
                 return
-            self._push({"type": "voice_text", "text": text})
+            if self._main_visible():
+                self._push({"type": "voice_text", "text": text})
+            else:
+                self._ov_turn = True
+                self.send(text)
 
         import threading
         threading.Thread(target=worker, daemon=True).start()
@@ -816,19 +792,12 @@ class Api:
         return json.dumps(ok)
 
     def set_wake_word(self, phrase):
-        """Change the spoken wake phrase from Settings; restarts the listener."""
+        """Update the wake phrase live (the listener re-reads it each cycle)."""
         from config import save_setting
-        phrase = str(phrase or "").strip().lower()
-        if not phrase:
-            return json.dumps(False)
+        phrase = str(phrase or "hey sotto").strip() or "hey sotto"
         ok = bool(save_setting("wake_word", phrase))
         _log(f"set_wake_word -> {phrase!r} ok={ok}")
-        if getattr(self, "_wake_on", False):
-            self._wake_on = False
-            time.sleep(0.6)
-            self._maybe_start_wake()
-        return json.dumps(ok)
-
+        return json.dumps({"ok": ok})
     def say_slow(self, text):
         self._tts = True
         try:
@@ -950,7 +919,9 @@ class Api:
         from config import load_settings
         if not load_settings().get("wake_word_enabled"):
             return
-        if self._wake_thread is not None:
+        t = self._wake_thread
+        if t is not None and t.is_alive():
+            self._wake_on = True     # revive if it was signalled to stop
             return
         self._wake_on = True
         self._wake_thread = threading.Thread(target=self._wake_loop, daemon=True)
@@ -970,57 +941,117 @@ class Api:
         except Exception:
             return True
 
-    def _wake_loop(self):
-        """Record short snippets and listen for the wake phrase. Never fights
-        the UI for the microphone: pauses while a turn is running, the UI is
-        listening, or Sotto is speaking."""
-        import tempfile
-        import pathlib
+    def _listen_and_send(self):
+        """Hidden-window command capture: listen once, then run the turn
+        server-side (the main window's JS may be throttled while hidden)."""
         try:
-            from voice import record_wav, transcribe_wav, stt_ready
+            from audio import VoiceCapture
+            try:
+                from config import load_settings as _lset
+                _s = _lset()
+            except Exception:
+                _s = {}
+            end_sil = float(_s.get("voice_end_silence", 0.9) or 0.9)
+            vad_mode = int(_s.get("vad_mode", 2) or 2)
+            self._wake_hold = time.time() + 4.0
+            cap = VoiceCapture(end_silence=end_sil, vad_mode=vad_mode)
+            self._ov_listen = True
+            self._ov_mic = cap
+            self._push({"type": "state", "name": "listening"})
+            cap.wait()
+            wav = cap.stop()
+            if not cap.heard:
+                self._push({"type": "notice", "text": "I didn't quite catch that."})
+                self._push({"type": "state", "name": "idle"})
+                return
+            text, err = voice.transcribe_wav(wav)
+            text = (text or "").strip()
+            if not text:
+                self._push({"type": "notice", "text": "I didn't quite catch that."})
+                self._push({"type": "state", "name": "idle"})
+                return
+            self._ov_turn = True
+            self.send(text)
+        except Exception as e:
+            _log(f"listen_and_send error: {type(e).__name__}: {e}")
+        finally:
+            self._ov_mic = None
+            self._ov_listen = False
+
+    def _wake_loop(self):
+        """Continuous background listening for the wake phrase.
+
+        Precise capture (WebRTC VAD): waits silently until speech starts,
+        stops at the natural end of speech, then transcribes and checks
+        for the wake phrase. Never fights the UI for the microphone."""
+        from audio import VoiceCapture
+        try:
+            from voice import transcribe_wav, stt_ready
             if not stt_ready():
                 _log("wake-word: STT not ready - listener stopped")
                 self._wake_thread = None
                 return
             from config import load_settings
-            tmp = pathlib.Path(tempfile.gettempdir()) / "sotto_wake.wav"
-            kw, n = "", 0
+            _log("wake-word: listener running (webrtcvad)")
             while self._wake_on:
-                time.sleep(0.4)
-                n += 1
-                if n % 25 == 1:
-                    kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
-                    _log(f"wake-word: listening for '{kw}'")
-                if self._busy or getattr(self, "_mic", None) or self._tts \
-                        or self._ov_mic or self._ov_listen:
+                time.sleep(0.2)
+                if (self._busy or getattr(self, "_mic", None) or getattr(self, "_tts", False)
+                        or getattr(self, "_ov_mic", None) or getattr(self, "_ov_listen", False)
+                        or getattr(self, "_voice_active", False)
+                        or time.time() < getattr(self, "_wake_hold", 0.0)):
                     continue
-                ok, _lvl, _err = record_wav(str(tmp), seconds=2)
-                if not ok:
-                    time.sleep(2)
+                kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
+                cap = VoiceCapture(end_silence=0.7, no_speech_timeout=1800.0, max_len=12.0)
+                cap.start(should_stop=lambda: bool(
+                    not self._wake_on or self._busy or getattr(self, "_mic", None)
+                    or getattr(self, "_tts", False) or getattr(self, "_voice_active", False)
+                    or time.time() < getattr(self, "_wake_hold", 0.0)))
+                cap.wait(600.0)
+                if not cap._done.is_set():
+                    cap.stop_now()
+                wav = cap.stop()
+                if not self._wake_on or not cap.heard:
                     continue
-                if self._busy or getattr(self, "_mic", None) or self._tts \
-                        or self._ov_mic or self._ov_listen:
+                if float((cap.stats or {}).get("peak", 1.0)) < 0.012:
                     continue
-                text, _err = transcribe_wav(str(tmp))
+                text, _err = transcribe_wav(wav)
+                text = (text or "").strip()
                 if not text:
                     continue
                 low = text.lower()
-                if kw in low:
-                    rest = low.split(kw, 1)[1].strip(" .,!?")
-                    _log(f"wake-word heard: {text!r} rest={rest!r}")
-                    self._activate_visual()
+                phrase, idx = None, -1
+                if kw and kw in low:
+                    phrase, idx = kw, low.find(kw)
+                if idx < 0:
+                    for extra in ("hey sotto", "hey soto", "ok sotto", "ok soto",
+                                  "okay sotto", "okay soto", "hi sotto", "sotto", "soto"):
+                        j = low.find(extra)
+                        if j >= 0:
+                            phrase, idx = extra, j
+                            break
+                if idx < 0:
+                    st = cap.stats or {}
+                    _log(f"wake-word ignored {text[:70]!r} dur={st.get('dur')} peak={st.get('peak')}")
+                    continue
+                rest = text[idx + len(phrase):].strip(" ,.!?;:-")
+                _log(f"wake-word heard: {text!r} rest={rest!r}")
+                try:
+                    import winsound
+                    winsound.Beep(988, 70)
+                    winsound.Beep(1319, 90)
+                except Exception:
+                    pass
+                self._activate_visual()
+                if self._main_visible():
                     self._push({"type": "wake", "rest": rest, "ts": time.time()})
-                    if not self._main_visible():
-                        # main window hidden/throttled: the bridge owns the turn
-                        if rest:
-                            self._ov_turn = True
-                            threading.Thread(target=self.send, args=(rest,),
-                                             daemon=True).start()
-                        else:
-                            self._ov_listen = True
-                            threading.Thread(target=self._ov_listen_loop,
-                                             daemon=True).start()
-                    time.sleep(2)  # cool-off so our own reply doesn't retrigger
+                elif rest:
+                    self._ov_turn = True
+                    threading.Thread(target=self.send, args=(rest,),
+                                     daemon=True).start()
+                else:
+                    threading.Thread(target=self._listen_and_send,
+                                     daemon=True).start()
+                time.sleep(2)
         except Exception as e:
             _log(f"wake-word loop error: {e}")
         finally:

@@ -82,6 +82,14 @@
 
 ---
 
+## J. Wake word (now ON in your build)
+
+| # | Do this | Expect |
+|---|---|---|
+| J1 | With Sotto minimized (or inside any app), say: *"hey sotto, what time is it?"* | **Double beep** (earcon) -> pill shows listening -> speaks the answer. Zero clicks. |
+| J2 | Say just *"hey sotto"* -> beep -> then say a command | Beep = it listens for your command; then answers. |
+| J3 | Settings -> wake word toggle | Off stops background listening anytime. While ON, Sotto listens continuously (light CPU; transcribes only when it hears speech). |
+
 ## Reporting a failure
 Tell me: **the exact words you said** + **what happened instead** (or a screenshot, like before). I can read `%LOCALAPPDATA%\RealAssistant\ui.log` for the full internals.
 

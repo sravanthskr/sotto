@@ -7,6 +7,7 @@ MicStream.start() begins capturing on a background thread and exposes `.level`
 
 import tempfile
 import threading
+import time
 import wave
 from pathlib import Path
 
@@ -59,6 +60,164 @@ class MicStream:
 
     def _write(self):
         path = Path(tempfile.gettempdir()) / "ra_voice_ui.wav"
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(self.sr)
+            w.writeframes(b"".join(self._frames))
+        return str(path)
+
+
+class VoiceCapture:
+    """Precise utterance capture for hands-free listening.
+
+    Uses the WebRTC voice-activity engine (webrtcvad) - the same family
+    of VAD used by established local voice pipelines - with a
+    noise-calibrated level detector as fallback. Records 16 kHz mono
+    30 ms frames; speech starts after 3 voiced frames in a row and ends
+    after `end_silence` seconds of unvoiced frames. No hard-coded
+    amplitude assumptions, so it adapts to any microphone gain."""
+
+    def __init__(self, device=None, samplerate=16000, end_silence=0.9,
+                 no_speech_timeout=8.0, max_len=45.0, vad_mode=2):
+        self.device = MIC_DEVICE if device is None else device
+        self.sr = samplerate
+        self.end_silence = max(0.3, float(end_silence or 0.9))
+        self.no_speech_timeout = float(no_speech_timeout or 8.0)
+        self.max_len = float(max_len or 45.0)
+        self.vad_mode = int(vad_mode if vad_mode is not None else 2)
+        self.level = 0.0
+        self.heard = False
+        self.canceled = False
+        self.error = None
+        self.stats = {}
+        self._frames = []
+        self._done = threading.Event()
+        self._should_stop = None
+        self._thread = None
+        self._force = False
+
+    def start(self, should_stop=None):
+        self._should_stop = should_stop
+        self._done.clear()
+        self._frames = []
+        self.heard = False
+        self.canceled = False
+        self.error = None
+        self.level = 0.0
+        self._force = False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        import queue
+        from collections import deque
+        frame_b = int(self.sr * 0.03) * 2          # 30 ms int16
+        q = queue.Queue()
+
+        def callback(indata, frames, tinfo, status):
+            q.put(bytes(indata))
+
+        try:
+            import webrtcvad
+            vad = webrtcvad.Vad(self.vad_mode)
+        except Exception:
+            vad = None
+        preroll = deque(maxlen=10)
+        frames = []
+        started = False
+        voiced = 0
+        unvoiced = 0
+        noise = None
+        peak = 0.0
+        t0 = time.time()
+        try:
+            with sd.RawInputStream(samplerate=self.sr, channels=1, dtype="int16",
+                                   blocksize=frame_b // 2, callback=callback,
+                                   device=self.device):
+                while True:
+                    if self._force:
+                        if not started:
+                            self.canceled = True
+                        break
+                    if self._should_stop and self._should_stop():
+                        if not started:
+                            self.canceled = True
+                        break
+                    el = time.time() - t0
+                    try:
+                        raw = q.get(timeout=0.1)
+                    except queue.Empty:
+                        raw = None
+                    if raw is None:
+                        if not started and el > self.no_speech_timeout:
+                            break
+                        if started and el > self.max_len:
+                            break
+                        continue
+                    if len(raw) < frame_b:
+                        continue
+                    raw = raw[:frame_b]
+                    smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
+                    rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
+                    if rms > peak:
+                        peak = rms
+                    self.level = min(1.0, rms / 0.25)
+                    if vad is not None:
+                        try:
+                            speech = vad.is_speech(raw, self.sr)
+                        except Exception:
+                            speech = False
+                    else:
+                        if noise is None:
+                            noise = rms or 0.005
+                        if not started:
+                            noise = noise * 0.96 + rms * 0.04
+                        thresh = max(noise * 2.8, noise + 0.01, 0.012)
+                        speech = rms > thresh
+                    if not started:
+                        preroll.append(raw)
+                        voiced = voiced + 1 if speech else 0
+                        if voiced >= 3:
+                            started = True
+                            self.heard = True
+                            frames = list(preroll)
+                            self.stats["onset"] = round(el, 2)
+                    else:
+                        frames.append(raw)
+                        unvoiced = 0 if speech else unvoiced + 1
+                        keep = int(max(3, round(self.end_silence / 0.03)))
+                        if unvoiced >= keep:
+                            break
+                        if el > self.max_len:
+                            break
+                    if not started and el > self.no_speech_timeout:
+                        break
+        except Exception as e:
+            self.error = str(e)
+        self._frames = frames
+        self.stats.update({
+            "vad": "webrtc" if vad is not None else "level",
+            "dur": round(len(frames) * 0.03, 2),
+            "peak": round(peak, 4),
+            "frames": len(frames),
+        })
+        self._done.set()
+
+    def stop_now(self):
+        """Ask the capture to end immediately (thread-safe)."""
+        self._force = True
+        self._done.wait(3.0)
+
+    def wait(self, timeout=60.0):
+        self._done.wait(timeout)
+        return self._done.is_set()
+
+    def stop(self):
+        self._done.wait(60.0)
+        if self._thread:
+            self._thread.join(timeout=2)
+        path = Path(tempfile.gettempdir()) / "ra_voice_turn.wav"
         with wave.open(str(path), "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
