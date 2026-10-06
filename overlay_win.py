@@ -98,17 +98,19 @@ def _main_hwnd():
 
 
 def _main_state():
-    """none | focused | unfocused"""
+    """focused | visible | minimized | hidden | none"""
     h = _main_hwnd()
     if not h:
         return "none"
     try:
         u = ctypes.windll.user32
-        if not u.IsWindowVisible(h) or u.IsIconic(h):
-            return "unfocused"
-        return "focused" if u.GetForegroundWindow() == h else "unfocused"
+        if not u.IsWindowVisible(h):
+            return "hidden"
+        if u.IsIconic(h):
+            return "minimized"
+        return "focused" if u.GetForegroundWindow() == h else "visible"
     except Exception:
-        return "unfocused"
+        return "visible"
 
 
 def _scale_for(hwnd):
@@ -334,14 +336,21 @@ def start_overlay_controller(api, overlay_win, main_win):
                     confirmed = ms
                 ms = confirmed
                 grace = (time.time() - t0) < 8.0
+                snap = api.overlay_state_raw()
+                snap_active = bool(snap.get("visible"))
                 if ms == "focused":
                     seen_focus = True
                     want = False
-                elif ms == "unfocused":
-                    # presence whenever the user is outside Sotto; the bridge
-                    # state decides what the pill says (quiet 'Sotto' when idle)
-                    want = bool(seen_focus) and not grace
+                elif ms == "visible":
+                    # the app is still on screen: only speak up when the
+                    # assistant is actually doing something (no idle pill)
+                    want = snap_active
+                elif ms in ("minimized", "hidden"):
+                    # out of sight: quiet presence + live state
+                    want = bool(seen_focus)
                 else:  # none - app window is gone (closing)
+                    want = False
+                if want and grace:
                     want = False
 
                 if want and not visible:

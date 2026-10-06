@@ -628,6 +628,13 @@
     for (const e of events) {
       if (e.type === 'hotkey' || e.type === 'wake') handleActivation(e);
       else if (e.type === 'ov_stop') { try { if (listening) stopListening(); } catch (err) {} }
+      else if (e.type === 'voice_text' && e.text) { send(e.text, true); }
+      else if (e.type === 'state' && e.name) {
+        if (e.name === 'listening') { enterListeningUI(); }
+        else if (listening) { exitListeningUI(); }
+        setState(e.name);
+      }
+      else if (e.type === 'notice') { toast(e.text || '', 'HEARD', 3200); scheduleAutoListen(); }
     }
   }
   setInterval(idlePoll, 350);
@@ -667,7 +674,7 @@
         else if (e.type === 'clear_prompt') { dismissPrompt(); }
         else if (e.type === 'speaking') { setSpeaking(true); }
         else if (e.type === 'speaking_end') { endSpeech(); }
-        else if (e.type === 'state' && e.name) { setState(e.name); if (e.label) { let th = turn.querySelector('.thinking'); if (!th) th = addThinking(turn, e.label); else { const lbl = th.querySelector('span:last-child'); if (lbl) lbl.textContent = e.label; } } }
+        else if (e.type === 'state' && e.name) { if (e.name !== 'listening' && listening) exitListeningUI(); setState(e.name); if (e.label) { let th = turn.querySelector('.thinking'); if (!th) th = addThinking(turn, e.label); else { const lbl = th.querySelector('span:last-child'); if (lbl) lbl.textContent = e.label; } } }
         else if (e.type === 'progress') { let th = turn.querySelector('.thinking'); if (!th) th = addThinking(turn, e.label || 'Working…'); else { const lbl = th.querySelector('span:last-child'); if (lbl && e.label) lbl.textContent = e.label; } }
         else if (e.type === 'ask') {
           said = true;
@@ -758,61 +765,50 @@
 
   function hideLive() { const live = $('#liveLine'); if (!live) return; clearInterval(partialTimer); partialTimer = null; live.hidden = true; live.innerHTML = ''; }
 
-  async function startListening() {
+  function enterListeningUI() {
     if (listening) return;
-    const api = bridge();
-    if (!api) { toast('The assistant backend isn’t running — start the app normally.', 'NOTICE', 3600); return; }
     listening = true;
     setState('listening');
     const live = $('#liveLine');
     if (live) { live.hidden = false; live.classList.remove('dim'); live.innerHTML = '<span class="caret"></span>'; }
-    if (hasApi('listen_partial')) {
+    const api = bridge();
+    if (api && hasApi('listen_partial')) {
       partialTimer = setInterval(async () => {
         const p = await callIf('listen_partial');
         const l = $('#liveLine');
-        if (p != null && l) l.innerHTML = escapeHtml(String(p)) + '<span class="caret"></span>';
+        if (p != null && l && listening) l.innerHTML = escapeHtml(String(p)) + '<span class="caret"></span>';
       }, 260);
     }
-    try { await api.listen_start(); } catch { listening = false; setState('idle'); hideLive(); return; }
-    /* auto end-of-speech: once you've spoken, ~1.0s of silence stops listening and sends */
-    const listenStart = performance.now();
-    let heardSound = false, lastLoud = listenStart, maxSeen = 0;
     levelTimer = setInterval(async () => {
       try { level = Math.max(0, Math.min(1, (await api.listen_level()) || 0)); } catch {}
-      const now = performance.now();
-      if (level > maxSeen) maxSeen = level;
-      const thresh = Math.max(0.04, maxSeen * 0.25);
-      if (level > thresh) { heardSound = true; lastLoud = now; }
-      const elapsed = (now - listenStart) / 1000;
-      const silentFor = (now - lastLoud) / 1000;
-      if (elapsed > 0.8 && ((heardSound && silentFor > 1.0) || (!heardSound && elapsed > 8) || elapsed > 60)) {
-        callIf('log', 'auto-stop heard=' + heardSound + ' silent=' + silentFor.toFixed(1) + 's elapsed=' + elapsed.toFixed(1) + 's');
-        stopListening();
-      }
     }, 50);
+  }
+
+  function exitListeningUI() {
+    if (!listening) return;
+    listening = false;
+    clearInterval(levelTimer); levelTimer = null;
+    clearInterval(partialTimer); partialTimer = null;
+    level = 0;
+    hideLive();
+  }
+
+  async function startListening() {
+    if (listening) return;
+    const api = bridge();
+    if (!api || !hasApi('voice_turn')) {
+      toast('The assistant backend is not running - start the app normally.', 'NOTICE', 3600);
+      return;
+    }
+    enterListeningUI();
+    try { await api.voice_turn(); } catch (err) { exitListeningUI(); setState('idle'); }
   }
 
   async function stopListening() {
     if (!listening) return;
-    const api = bridge();
-    listening = false;
-    clearInterval(levelTimer);
-    clearInterval(partialTimer); partialTimer = null;
-    level = 0;
     setState('understanding');
-    let text = '';
-    try { text = (await api.listen_stop()) || ''; } catch {}
-    const live = $('#liveLine');
-    if (live && text) { live.classList.add('dim'); live.innerHTML = escapeHtml(text); await wait(380); }
-    hideLive();
-    if (!text) {
-      setState('idle');
-      toast('I didn’t quite catch that.', 'HEARD', 3000);
-      scheduleAutoListen();
-      return;
-    }
-    setState('idle');
-    send(text, true);
+    try { await callIf('voice_stop'); } catch {}
+    setTimeout(() => { if (listening) exitListeningUI(); }, 2500);
   }
 
   function stopSpeaking(silent = false) {
@@ -1545,7 +1541,7 @@
     /* keyboard: hold Space to talk (release sends) · Esc dismiss · ⌘K type
        Space is voice-first: it always means "the voice", even when a button has focus. */
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { closeQuick(); closeSheets(); setTyping(false); }
+      if (e.key === 'Escape') { closeQuick(); closeSheets(); setTyping(false); try { if (listening) { callIf('voice_cancel'); exitListeningUI(); setState('idle'); } } catch (err) {} }
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setTyping(true); return; }
       if (mod && e.shiftKey) {
@@ -1560,6 +1556,7 @@
         e.preventDefault();
         if (e.repeat) return;
         if (speaking) { stopSpeaking(); return; }
+        if (listening) { stopListening(); return; }
         if (state === 'idle' || state === 'ready' || state === 'waiting') startListening();
       }
     });
@@ -1567,7 +1564,6 @@
       const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
       if (e.code === 'Space' && !typing) {
         e.preventDefault();
-        if (listening) stopListening();
       }
     });
 

@@ -17,6 +17,8 @@ All notable changes to Sotto are recorded in this file.
 ## [Unreleased]
 
 ### Fixed
+- Voice is now fully hands-free: listening runs in the backend, auto-detects when you stop talking (~1.5s of silence) and sends automatically - from the mic button, Space, the pill, or the Ctrl+Space hotkey. Tap only to finish early; Esc cancels.
+- Overlay pill: never appears while the Sotto window is on your screen (it only surfaces live state when the assistant is actually active); when Sotto is minimised or sent to background it shows the quiet presence.
 - Commands like "open telegram" no longer die quietly: when a model leaks a tool call as text, it is now parsed (JSON or XML form) and actually executed.
 - Replies can no longer leak internal thinking: the recovery path is guarded end-to-end, and an empty draft now gets a clean fallback instead of a confused rewrite.
 - Overlay pill presence is now smooth: no flash at launch, it waits for the switch to settle before appearing, and fades in/out cleanly.

@@ -80,6 +80,9 @@ class Api:
         self._wake_thread = None
         from config import load_settings as _ls
         self._overlay_enabled = bool(_ls().get("overlay_enabled", True))
+        self._voice_active = False
+        self._voice_stop_req = False
+        self._voice_cancel_req = False
         self._overlay_window = None
         self._main_window = None
         # floating-overlay snapshot (read by the overlay pill + its controller)
@@ -370,6 +373,118 @@ class Api:
         text, err = voice.transcribe_wav(wav)
         _log(f"listen_stop -> {str(text)[:120]!r} err={err}")
         return json.dumps("" if err else (text or ""))
+
+    def voice_turn(self):
+        """Hands-free listen cycle (server-side): records until you stop
+        talking, then transcribes and runs the turn. Used by the pill,
+        the global hotkey and the in-app mic button."""
+        if self._busy:
+            self._push({"type": "notice", "text": "Still on the last thing - one second."})
+            self._push({"type": "state", "name": "idle"})
+            return json.dumps(False)
+        if getattr(self, "_voice_active", False):
+            return json.dumps(True)
+        self._voice_active = True
+        self._voice_stop_req = False
+        self._voice_cancel_req = False
+        _log("voice_turn: start")
+        try:
+            self.stop_speaking()
+        except Exception:
+            pass
+        self._push({"type": "state", "name": "listening"})
+
+        def worker():
+            text, err = "", None
+            mic = None
+            try:
+                from audio import MicStream
+                mic = MicStream()
+                mic.start()
+                self._mic = mic
+                # who owns the spoken reply? the pill/hidden case speaks itself
+                try:
+                    import ctypes as _c
+                    u = _c.windll.user32
+                    hwnd = u.FindWindowW(None, "Sotto")
+                    fg = u.GetForegroundWindow()
+                    vis = bool(hwnd) and u.IsWindowVisible(hwnd) and not u.IsIconic(hwnd)
+                    self._ov_turn = not (vis and fg == hwnd)
+                except Exception:
+                    self._ov_turn = True
+                t0 = time.time()
+                noise = 0.0
+                heard = False
+                loud = 0
+                last_loud = t0
+                max_lvl = 0.0
+                while True:
+                    time.sleep(0.05)
+                    if self._voice_cancel_req:
+                        break
+                    try:
+                        lvl = float(mic.level)
+                    except Exception:
+                        lvl = 0.0
+                    if lvl > max_lvl:
+                        max_lvl = lvl
+                    if not heard:
+                        noise = noise * 0.92 + lvl * 0.08
+                    thresh = max(0.055, noise * 3.2)
+                    if lvl > thresh:
+                        loud += 1
+                    else:
+                        loud = max(0, loud - 1)
+                    if loud >= 3:
+                        if not heard:
+                            _log("voice_turn: speech detected")
+                        heard = True
+                        last_loud = time.time()
+                    el = time.time() - t0
+                    silent_for = time.time() - last_loud
+                    if self._voice_stop_req:
+                        break
+                    if el > 1.0 and heard and silent_for > 1.4:
+                        break
+                    if not heard and el > 9.0:
+                        break
+                    if el > 45.0:
+                        break
+                wav = mic.stop()
+                if not self._voice_cancel_req:
+                    text, err = voice.transcribe_wav(wav)
+                _log(f"voice_turn: stop heard={heard} cancel={self._voice_cancel_req} maxLvl={max_lvl:.2f} text={str(text)[:110]!r} err={err}")
+            except Exception as e:
+                _log(f"voice_turn error: {type(e).__name__}: {e}")
+            finally:
+                self._mic = None
+                self._voice_active = False
+                self._voice_stop_req = False
+            if self._voice_cancel_req:
+                self._voice_cancel_req = False
+                self._push({"type": "state", "name": "idle"})
+                return
+            text = (text or "").strip()
+            if not text:
+                self._push({"type": "notice", "text": "I didn't quite catch that."})
+                self._push({"type": "state", "name": "idle"})
+                return
+            self._push({"type": "voice_text", "text": text})
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+        return json.dumps(True)
+
+    def voice_stop(self):
+        """Finish now: stop recording early and process what was said."""
+        self._voice_stop_req = True
+        return json.dumps(True)
+
+    def voice_cancel(self):
+        """Abort the capture without sending anything."""
+        self._voice_cancel_req = True
+        self._voice_stop_req = True
+        return json.dumps(True)
 
     def log(self, msg):
         _log("js: " + str(msg)[:300])
@@ -803,8 +918,15 @@ class Api:
                 while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
                     if msg.message == 0x0312:  # WM_HOTKEY
                         _log("Global hotkey Ctrl+Space pressed")
-                        self._activate_visual()
-                        self._push({"type": "hotkey", "action": "activate", "ts": time.time()})
+                        try:
+                            if getattr(self, "_voice_active", False):
+                                self.voice_stop()
+                            else:
+                                if not self._overlay_enabled:
+                                    self._activate_visual()
+                                self.voice_turn()
+                        except Exception as e:
+                            _log(f"hotkey voice error: {e}")
                     user32.TranslateMessage(ctypes.byref(msg))
                     user32.DispatchMessageW(ctypes.byref(msg))
             except Exception as e:
@@ -1088,11 +1210,10 @@ class Api:
                 self._ov_turn = False
 
     def overlay_tap(self):
-        """Orb tapped on the pill: tap to listen, tap again to stop, tap while
-        speaking to interrupt. Owned by the bridge so it works everywhere."""
-        if self._ov_listen:
-            self._ov_listen = False
-            return json.dumps(True)
+        """Orb tapped: start talking - or stop early if already listening."""
+        if getattr(self, "_voice_active", False):
+            return self.voice_stop()
+        return self.voice_turn()
         if self._tts:
             self.stop_speaking()
             return json.dumps(True)
