@@ -246,7 +246,7 @@ def _fade_then_hide(win):
         win.evaluate_js("document.body.classList.add('bye')")
     except Exception:
         pass
-    time.sleep(0.24)
+    time.sleep(0.16)
     try:
         win.hide()
     except Exception:
@@ -289,6 +289,7 @@ def start_overlay_controller(api, overlay_win, main_win):
         last_ms = None
         confirmed = None
         stable = 0
+        suppress_until = 0.0
         t0 = time.time()
         while True:
             time.sleep(0.16)
@@ -309,6 +310,10 @@ def start_overlay_controller(api, overlay_win, main_win):
                             u.SetForegroundWindow(hwnd)
                     except Exception:
                         pass
+                    suppress_until = time.time() + 2.0
+                    confirmed = "focused"
+                    last_ms = "focused"
+                    stable = 3
                     _log("overlay: expand -> main window restored")
                     continue
 
@@ -330,7 +335,7 @@ def start_overlay_controller(api, overlay_win, main_win):
                     last_ms = ms
                     stable = 1
                 if ms == "focused":
-                    if stable >= 3:
+                    if stable >= 1:
                         confirmed = ms
                 elif stable >= 7:
                     confirmed = ms
@@ -352,6 +357,8 @@ def start_overlay_controller(api, overlay_win, main_win):
                     want = False
                 if want and grace:
                     want = False
+                if want and time.time() < suppress_until:
+                    want = False
 
                 if want and not visible:
                     _show_noactivate(overlay_win)
@@ -360,6 +367,7 @@ def start_overlay_controller(api, overlay_win, main_win):
                 elif not want and visible:
                     _fade_then_hide(overlay_win)
                     visible = False
+                    suppress_until = time.time() + 1.2
                     _log("overlay: pill hidden")
                 elif not want and not visible:
                     # resync: make sure a stray visible window can never stick
