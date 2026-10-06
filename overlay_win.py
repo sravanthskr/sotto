@@ -128,28 +128,18 @@ def _position(win, hwnd):
         pass
 
 
-def _apply_region(hwnd):
-    """Clip the window to the webview client area, rounded into a pill."""
+class _MARGINS(ctypes.Structure):
+    _fields_ = [("l", ctypes.c_int), ("r", ctypes.c_int),
+                ("t", ctypes.c_int), ("b", ctypes.c_int)]
+
+
+def _apply_dwm_glass(hwnd):
+    """Extend DWM glass over the entire window so the compositor background
+    is used instead of the WinForms Form.BackColor.  Combined with the
+    WebView2 transparent background this gives true per-pixel see-through."""
     try:
-        u = ctypes.windll.user32
-        s = _scale_for(hwnd)
-        cl = _RC()
-        if not u.GetClientRect(hwnd, ctypes.byref(cl)) or (cl.r - cl.l) <= 0:
-            cl.l, cl.t = 0, 0
-            cl.r, cl.b = int(WIN_W * s), int(WIN_H * s)
-        pt = _PT(0, 0)
-        u.ClientToScreen(hwnd, ctypes.byref(pt))
-        wr = _RC()
-        u.GetWindowRect(hwnd, ctypes.byref(wr))
-        ox = pt.x - wr.l
-        oy = pt.y - wr.t
-        w = cl.r - cl.l
-        h = cl.b - cl.t
-        r = int(min(RADIUS * s * 2, h))
-        gdi = ctypes.windll.gdi32
-        rgn = gdi.CreateRoundRectRgn(ox, oy, ox + w + 1, oy + h + 1, r, r)
-        u.SetWindowRgn(hwnd, rgn, True)
-        u.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020 | 0x0004)
+        m = _MARGINS(-1, -1, -1, -1)
+        ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(m))
     except Exception:
         pass
 
@@ -167,6 +157,27 @@ def _make_toolwindow(hwnd):
         pass
 
 
+def _round_region(hwnd):
+    try:
+        u = ctypes.windll.user32
+        g = ctypes.windll.gdi32
+        s = _scale_for(hwnd)
+        # the pill now fills the whole window, so clip the full rect to a
+        # stadium (radius = half the height) - only the curved pill shows and
+        # there is no square backdrop left to render as a black border
+        w = int(round(WIN_W * s)) + 1
+        h = int(round(WIN_H * s)) + 1
+        r = int(round((WIN_H / 2) * s))
+        g.CreateRoundRectRgn.restype = ctypes.c_void_p   # GDI handles are 64-bit
+        # SetWindowRgn truncates the 64-bit HRGN unless we declare the arg types
+        u.SetWindowRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
+        rgn = g.CreateRoundRectRgn(0, 0, w, h, r, r)
+        if rgn:
+            u.SetWindowRgn(hwnd, rgn, True)
+    except Exception:
+        pass
+
+
 def _setup_overlay(win, hide_after=False):
     """Size + shape + position + taskbar-hide for the pill window."""
     hwnd = _overlay_hwnd()
@@ -177,7 +188,7 @@ def _setup_overlay(win, hide_after=False):
     except Exception:
         pass
     _make_toolwindow(hwnd)
-    _apply_region(hwnd)
+    _apply_dwm_glass(hwnd)
     _position(win, hwnd)
     if hide_after:
         try:
@@ -199,12 +210,12 @@ def create_overlay_window(api):
         draggable=True,
         resizable=False,
         on_top=True,
-        transparent=False,
+        transparent=True,
         shadow=False,
         focus=False,
         hidden=True,
         min_size=(90, 40),
-        background_color="#14161A",
+        background_color="#FFFFFF",
     )
     try:
         win.events.loaded += lambda: _STATE.update(loaded=True)
@@ -276,6 +287,7 @@ def start_overlay_controller(api, overlay_win, main_win):
         last_ms = None
         confirmed = None
         stable = 0
+        t0 = time.time()
         while True:
             time.sleep(0.16)
             try:
@@ -308,20 +320,27 @@ def start_overlay_controller(api, overlay_win, main_win):
                     continue
 
                 ms = _main_state()
-                # debounce: only trust a state that held for ~0.5s
+                # smooth presence: appear only after the switch has settled,
+                # hide a little quicker; separate tick thresholds
                 if ms == last_ms:
                     stable += 1
                 else:
                     last_ms = ms
                     stable = 1
-                if stable >= 3:
+                if ms == "focused":
+                    if stable >= 3:
+                        confirmed = ms
+                elif stable >= 7:
                     confirmed = ms
                 ms = confirmed
+                grace = (time.time() - t0) < 8.0
                 if ms == "focused":
                     seen_focus = True
                     want = False
                 elif ms == "unfocused":
-                    want = True if seen_focus else False
+                    # presence whenever the user is outside Sotto; the bridge
+                    # state decides what the pill says (quiet 'Sotto' when idle)
+                    want = bool(seen_focus) and not grace
                 else:  # none - app window is gone (closing)
                     want = False
 

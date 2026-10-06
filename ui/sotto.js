@@ -1174,6 +1174,8 @@
         if (info.version) $('#aboutLine').textContent = 'Sotto · ' + info.version;
         if (info.apps) $('#scanCount').textContent = info.apps + ' apps ready — rescan anytime';
         if (info.wake_enabled) { const ws = $('#wakeSwitch'); if (ws) ws.setAttribute('aria-pressed', 'true'); }
+        const wwi = $('#wakeWordInput');
+        if (wwi && !wwi.value) wwi.value = info.wake_word || 'hey sotto';
         if (info.overlay_enabled === false) setOverlayUI(false);
         refreshAccounts();
         checkAppLock();
@@ -1335,6 +1337,14 @@
       e.currentTarget.setAttribute('aria-pressed', String(on));
       callIf('set_wake', on);
       toast(on ? 'Wake word on' : 'Wake word off', 'VOICE', 1800);
+    });
+    const wakeWordInput = $('#wakeWordInput');
+    if (wakeWordInput) wakeWordInput.addEventListener('change', () => {
+      const v = wakeWordInput.value.trim().toLowerCase();
+      if (!v) return;
+      wakeWordInput.value = v;
+      callIf('set_wake_word', v);
+      toast('Wake phrase: "' + v + '"', 'VOICE', 1800);
     });
     /* floating overlay pill: one switch in Settings, one in the quick menu */
     ['#overlaySwitch', '#overlaySwitchQ'].forEach(sel => {

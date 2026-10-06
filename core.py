@@ -123,50 +123,63 @@ class Assistant:
         first = {"v": True}
 
         def _text_tool_call(content):
-            """Recover tool calls that free models emit as plain text (JSON or XML form)."""
+            """Recover tool calls that free models emit as plain text (JSON or XML)."""
             if not content:
                 return None
-            low = content.lower()
-            if "<tool_call" in low or "<function=" in low:
-                import re as _re
-                m = _re.search(r"<function=([^>\s]+)>", content)
-                if m:
-                    name = m.group(1).strip()
-                    aliases = {"email": "email_summary", "gmail": "email_summary",
-                               "mail": "email_summary", "calendar": "calendar_today"}
-                    name = aliases.get(name, name)
+            import re as _re
+            body = content
+            fence = _re.search(r"```(?:json|xml|tool_call)?\s*([\s\S]*?)```", content)
+            if fence:
+                body = fence.group(1)
+
+            def _mk(name, args):
+                if not isinstance(name, str):
+                    return None
+                name = name.strip()
+                aliases = {"email": "email_summary", "gmail": "email_summary",
+                           "mail": "email_summary", "calendar": "calendar_today"}
+                name = aliases.get(name, name)
+                if name not in tools.REGISTRY:
+                    return None
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {}
+                if not isinstance(args, dict):
                     args = {}
-                    for pm in _re.finditer(r"<parameter=([^>\s]+)>\s*(.*?)\s*</parameter>", content, _re.S):
-                        args[pm.group(1).strip()] = pm.group(2).strip()
-                    if name in tools.REGISTRY:
-                        return {"id": "textcall0", "type": "function",
-                                "function": {"name": name, "arguments": json.dumps(args)}}
+                return {"id": "textcall0", "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(args)}}
+
+            fm = _re.search(r"<function=([^>\s]+)>", body)
+            if fm:
+                name = fm.group(1)
+                args = {}
+                for pm in _re.finditer(r"<parameter=([^>\s]+)>\s*([\s\S]*?)\s*</parameter>", body):
+                    args[pm.group(1).strip()] = pm.group(2).strip()
+                return _mk(name, args)
+            cand = None
+            m = _re.search(r"<tool_call>\s*([\s\S]*?)\s*</tool_call>", body, _re.I)
+            if m:
+                try:
+                    cand = json.loads(m.group(1))
+                except Exception:
+                    cand = None
+            if cand is None:
+                jm = _re.search(r"\{[\s\S]*\}", body)
+                if jm:
+                    try:
+                        cand = json.loads(jm.group(0))
+                    except Exception:
+                        cand = None
+            if not isinstance(cand, dict):
                 return None
-            if not content.startswith("{"):
-                return None
-            try:
-                data = json.loads(content)
-            except Exception:
-                return None
-            if not isinstance(data, dict):
-                return None
-            name = data.get("tool") or data.get("name") or data.get("function")
-            args = data.get("arguments") or data.get("args") or data.get("parameters") or {}
+            name = cand.get("tool") or cand.get("name") or cand.get("function")
+            args = cand.get("arguments") or cand.get("args") or cand.get("parameters") or {}
             if isinstance(name, dict):
                 args = name.get("arguments", args)
                 name = name.get("name")
-            if not isinstance(name, str) or name not in tools.REGISTRY:
-                return None
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except Exception:
-                    args = {}
-            if not isinstance(args, dict):
-                args = {}
-            return {"id": "textcall0", "type": "function",
-                    "function": {"name": name, "arguments": json.dumps(args)}}
-
+            return _mk(name, args)
         def emit(chunk):
             if first["v"]:
                 self._status("speaking")

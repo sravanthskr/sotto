@@ -699,11 +699,12 @@ body.sheet-open .frame{transform:scale(.988)}
    floats above everything; coming back restores the full window.
    ============================================================ */
 #pillBar{display:none}
-body.pillmode{overflow:hidden;background:#0C0E11}
+body.pillmode{overflow:hidden;background:transparent}
 body.pillmode .frame,
 body.pillmode .toast{display:none !important}
 body.pillmode #pillBar{
-  display:flex;align-items:center;gap:11px;height:100vh;
+  position:fixed;inset:0;width:100%;height:100%;
+  display:flex;align-items:center;gap:11px;
   padding:0 9px 0 12px;box-sizing:border-box;
   background:rgba(12,14,17,.97);border:1px solid rgba(226,232,240,.14);
   border-radius:30px;user-select:none;cursor:default;

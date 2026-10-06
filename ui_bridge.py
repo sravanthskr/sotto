@@ -48,11 +48,22 @@ def _status_rows(text):
     return rows
 
 
+_META_PATTERNS = (
+    "the user is asking", "the user wants", "the user said", "the user might",
+    "the user asks", "i should", "i need to", "i can't rewrite", "provided a draft",
+    "no draft", "rewrite the draft", "meta-commentary", "the instruction says",
+    "looking at the conversation", "first user message", "let me think about",
+    "let me use", "let me check", "i will use", "i can use", "as the final reply",
+    "not mention", "step 1:",
+)
+
+
 class Api:
     def __init__(self, on_ready=None):
         self.store = SessionStore()
         self.assistant = Assistant(on_text=self._on_text, on_tool=self._on_tool,
-                                    on_learned=self._on_learned, on_status=self._on_status)
+                                    on_learned=self._on_learned, on_status=self._on_status,
+                                    on_confirm=self._confirm_cb)
         self.session = None
         self._events = []
         self._lock = threading.Lock()
@@ -80,6 +91,11 @@ class Api:
         self._ov_err_ts = 0.0
         self._ov_ts = 0.0
         self._theme = "light"
+        self._confirm = None            # pending destructive-action gate
+        self._interrupted_ts = 0.0      # last time speech was cut off
+        self._ov_mic = None             # pill-owned microphone stream
+        self._ov_listen = False         # pill is currently listening
+        self._ov_turn = False           # current turn was started from the pill
 
     # ---- lifecycle -----------------------------------------------------
     def start(self):
@@ -133,16 +149,30 @@ class Api:
         if any(m in low for m in ("<tool_call", "<function=", "<parameter=")):
             self._turn_leak = True
             _log("leak-guard: holding back XML tool-call text")
-        if not self._turn_checked:
-            self._turn_checked = True
-            if any(m in low for m in ("the user is asking", "the user wants", "i should check",
-                                      "i need to check", "let me use", "let me check what", "i can use")):
-                self._turn_leak = True
-                _log("leak-guard: holding back planning text")
+        self._turn_checked = True
+        if any(m in low for m in _META_PATTERNS):
+            self._turn_leak = True
+            _log("leak-guard: holding back planning text")
         if self._turn_leak:
+            return
+        if self._ov_turn:
+            # pill-originated turn: the bridge owns speech (the hidden main
+            # window's JS may be throttled and must not double-speak)
+            self._push({"type": "text", "text": text + " "})
+            if not self._speak_muted:
+                self._speak_now(text)
             return
         kind = "text" if self._speak_muted else "say"
         self._push({"type": kind, "text": text + " "})
+
+    def _speak_now(self, text):
+        self._tts = True
+        try:
+            voice.speak(text)
+        except Exception as e:
+            _log(f"ov speak: {type(e).__name__}: {e}")
+        finally:
+            self._tts = False
 
     def _on_status(self, state):
         if state == self._last_status:
@@ -234,32 +264,33 @@ class Api:
         threading.Thread(target=run, daemon=True).start()
 
     def _repair(self, draft):
-        """A weak model leaked planning/meta text — rewrite it into a clean answer."""
+        """A weak model leaked planning/meta text - rewrite it into a clean answer."""
         import ai_engine
+        self._turn_checked = True
+        draft = (draft or "").strip()
         try:
             import re as _re
-            draft = _re.sub(r"<tool_call[\s\S]*?</tool_call>|<function=[\s\S]*?</function>",
-                            " ", draft or "").strip()
+            draft = _re.sub(r"<tool_call[\s\S]*?|<function=[\s\S]*?</function>", " ", draft).strip()
         except Exception:
             pass
-        _log("repair: rewriting planning-leaked reply")
+        _log(f"repair: rewriting planning-leaked reply (draft len={len(draft)})")
+        fallback = "Sorry - that got tangled on my side. Could you say that again?"
         self._turn_leak = False
-        self._turn_checked = True
         fixed = ""
-        try:
-            fixed = (ai_engine.complete([
-                {"role": "system", "content": "Rewrite the draft as the final reply to the user: "
-                 "one or two short plain sentences, first person, no planning, no meta-commentary, "
-                 "no mention of tools or commands."},
-                {"role": "user", "content": draft[:1500]},
-            ], max_tokens=300) or "").strip()
-        except Exception as e:
-            _log(f"repair failed: {e}")
-        if fixed:
-            self._flush_say(fixed)
-            return fixed
-        _log("repair produced nothing")
-        return ""
+        if len(draft) >= 12:
+            try:
+                fixed = (ai_engine.complete([
+                    {"role": "system", "content": "You are Sotto's reply editor. You receive a messy internal note. Reply ONLY with the assistant's final answer to the user: 1-2 short, plain, first-person sentences. No planning, no meta talk, no quoting of instructions."},
+                    {"role": "user", "content": "Internal note:\n" + draft[:1500]},
+                ], max_tokens=220) or "").strip()
+            except Exception as e:
+                _log(f"repair failed: {e}")
+        low_fixed = fixed.lower()
+        if (not fixed) or any(m in low_fixed for m in _META_PATTERNS):
+            fixed = fallback
+            _log("repair: using fallback line")
+        self._flush_say(fixed)
+        return fixed
 
     def _run(self, text):
         try:
@@ -293,6 +324,7 @@ class Api:
             self._push({"type": "error", "text": short})
         finally:
             self._busy = False
+            self._ov_turn = False
 
     # ---- live listening (feeds the presence visual) ----------------
     def listen_start(self):
@@ -302,7 +334,7 @@ class Api:
         return json.dumps({"ok": True})
 
     def listen_level(self):
-        mic = getattr(self, "_mic", None)
+        mic = getattr(self, "_ov_mic", None) or getattr(self, "_mic", None)
         try:
             return float(mic.level) if mic else 0.0
         except Exception:
@@ -353,6 +385,7 @@ class Api:
 
     def stop_speaking(self):
         self._speak_muted = True
+        self._interrupted_ts = time.time()
         try:
             voice.stop_speaking()
         except Exception:
@@ -640,6 +673,20 @@ class Api:
         _log(f"set_wake -> {on} ok={ok}")
         return json.dumps(ok)
 
+    def set_wake_word(self, phrase):
+        """Change the spoken wake phrase from Settings; restarts the listener."""
+        from config import save_setting
+        phrase = str(phrase or "").strip().lower()
+        if not phrase:
+            return json.dumps(False)
+        ok = bool(save_setting("wake_word", phrase))
+        _log(f"set_wake_word -> {phrase!r} ok={ok}")
+        if getattr(self, "_wake_on", False):
+            self._wake_on = False
+            time.sleep(0.6)
+            self._maybe_start_wake()
+        return json.dumps(ok)
+
     def say_slow(self, text):
         self._tts = True
         try:
@@ -664,6 +711,7 @@ class Api:
             "apps": len(tools.APP_INDEX),
             "scan_needed": not bool(config.load_settings().get("scan_done")),
             "wake_enabled": bool(config.load_settings().get("wake_word_enabled")),
+            "wake_word": str(config.load_settings().get("wake_word") or "hey sotto"),
             "overlay_enabled": bool(self._overlay_enabled),
             "memory": self.assistant.memory.facts(),
             "notes": [n["text"] for n in self.assistant.notes.list(50)],
@@ -755,6 +803,19 @@ class Api:
         self._wake_thread.start()
         _log("wake-word listener started")
 
+    def _main_visible(self):
+        """True while the main Sotto window is on screen (its JS is alive)."""
+        try:
+            import ctypes
+            from overlay_win import _main_hwnd
+            h = _main_hwnd()
+            if not h:
+                return False
+            u = ctypes.windll.user32
+            return bool(u.IsWindowVisible(h)) and not bool(u.IsIconic(h))
+        except Exception:
+            return True
+
     def _wake_loop(self):
         """Record short snippets and listen for the wake phrase. Never fights
         the UI for the microphone: pauses while a turn is running, the UI is
@@ -768,18 +829,23 @@ class Api:
                 self._wake_thread = None
                 return
             from config import load_settings
-            kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
             tmp = pathlib.Path(tempfile.gettempdir()) / "sotto_wake.wav"
-            _log(f"wake-word: listening for '{kw}'")
+            kw, n = "", 0
             while self._wake_on:
                 time.sleep(0.4)
-                if self._busy or getattr(self, "_mic", None) or self._tts:
+                n += 1
+                if n % 25 == 1:
+                    kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
+                    _log(f"wake-word: listening for '{kw}'")
+                if self._busy or getattr(self, "_mic", None) or self._tts \
+                        or self._ov_mic or self._ov_listen:
                     continue
                 ok, _lvl, _err = record_wav(str(tmp), seconds=2)
                 if not ok:
                     time.sleep(2)
                     continue
-                if self._busy or getattr(self, "_mic", None) or self._tts:
+                if self._busy or getattr(self, "_mic", None) or self._tts \
+                        or self._ov_mic or self._ov_listen:
                     continue
                 text, _err = transcribe_wav(str(tmp))
                 if not text:
@@ -790,6 +856,16 @@ class Api:
                     _log(f"wake-word heard: {text!r} rest={rest!r}")
                     self._activate_visual()
                     self._push({"type": "wake", "rest": rest, "ts": time.time()})
+                    if not self._main_visible():
+                        # main window hidden/throttled: the bridge owns the turn
+                        if rest:
+                            self._ov_turn = True
+                            threading.Thread(target=self.send, args=(rest,),
+                                             daemon=True).start()
+                        else:
+                            self._ov_listen = True
+                            threading.Thread(target=self._ov_listen_loop,
+                                             daemon=True).start()
                     time.sleep(2)  # cool-off so our own reply doesn't retrigger
         except Exception as e:
             _log(f"wake-word loop error: {e}")
@@ -876,15 +952,132 @@ class Api:
         _log(f"set_overlay -> {on} ok={ok}")
         return json.dumps(ok)
 
-    def overlay_tap(self):
-        """Orb tapped on the pill: start talking - or stop if already listening."""
+    def _confirm_cb(self, question, detail):
+        """Destructive-action gate (spec 18). With the overlay enabled the pill
+        becomes the confirmation surface (buttons + voice yes/no); otherwise the
+        native topmost dialog is used so behaviour never regresses."""
+        if not self._overlay_enabled:
+            from confirm import ask
+            return bool(ask(question, detail))
+        ev = threading.Event()
+        pend = {"question": question or "", "detail": detail or "",
+                "ev": ev, "ok": False}
+        self._confirm = pend
+        self._push({"type": "confirm", "question": pend["question"],
+                    "detail": pend["detail"], "ts": time.time()})
+        threading.Thread(target=self._confirm_voice, args=(pend,), daemon=True).start()
+        ev.wait(timeout=120)
+        ok = bool(pend["ok"])
+        if self._confirm is pend:
+            self._confirm = None
+        self._push({"type": "confirm_resolved", "ok": ok, "ts": time.time()})
+        return ok
+
+    def _confirm_voice(self, pend):
+        """Let the user answer a confirmation by voice while outside Sotto."""
         try:
-            if getattr(self, "_mic", None):
-                self._push({"type": "ov_stop", "ts": time.time()})
-                return json.dumps(True)
-        except Exception:
-            pass
-        self._push({"type": "hotkey", "action": "activate", "ts": time.time()})
+            time.sleep(0.25)
+            if pend["ev"].is_set():
+                return
+            try:
+                voice.speak(pend["question"])
+            except Exception:
+                pass
+            if pend["ev"].is_set():
+                return
+            from audio import MicStream
+            mic = MicStream()
+            mic.start()
+            time.sleep(3.5)
+            wav = mic.stop()
+            text = (voice.transcribe_wav(wav) or "").strip().lower()
+            if not text or pend["ev"].is_set():
+                return
+            yes = ("yes", "yeah", "yep", "ok", "okay", "sure", "do it", "go ahead", "confirm")
+            no = ("no", "cancel", "stop", "don't", "do not", "never mind", "nevermind")
+            if any(w in text for w in no):
+                self.overlay_confirm(False)
+            elif any(w in text for w in yes):
+                self.overlay_confirm(True)
+        except Exception as e:
+            _log(f"confirm voice: {type(e).__name__}: {e}")
+
+    def overlay_confirm(self, ok):
+        """Confirm/Cancel pressed on the pill."""
+        pend = self._confirm
+        if pend:
+            pend["ok"] = bool(ok)
+            pend["ev"].set()
+        return json.dumps(True)
+
+    def confirm_action(self, ok=True, *args):
+        """Alias kept for the main UI's confirmation buttons."""
+        return self.overlay_confirm(ok)
+
+    def _ov_listen_loop(self):
+        """Pill-owned listening: open the mic, detect speech end from the real
+        level, transcribe, then run the turn - independent of the main window."""
+        from audio import MicStream
+        mic = MicStream()
+        mic.start()
+        self._ov_mic = mic
+        t0 = time.time()
+        heard = False
+        silent = 0.0
+        wav = None
+        try:
+            while self._ov_listen:
+                time.sleep(0.05)
+                try:
+                    lv = float(mic.level or 0.0)
+                except Exception:
+                    lv = 0.0
+                if lv > 0.06:
+                    heard = True
+                    silent = 0.0
+                else:
+                    silent += 0.05
+                el = time.time() - t0
+                if el > 0.8 and ((heard and silent > 1.0) or (not heard and el > 8)):
+                    break
+                if el > 60:
+                    break
+        finally:
+            self._ov_listen = False
+            self._ov_mic = None
+            try:
+                wav = mic.stop()
+            except Exception:
+                wav = None
+        if not wav:
+            return
+        try:
+            text, err = voice.transcribe_wav(wav)
+        except Exception as e:
+            _log(f"ov transcribe: {type(e).__name__}: {e}")
+            text, err = "", True
+        _log(f"ov listen -> {str(text)[:120]!r} err={err}")
+        if text and not err:
+            self._ov_turn = True
+            try:
+                self.send(text)
+            except Exception as e:
+                _log(f"ov send: {type(e).__name__}: {e}")
+                self._ov_turn = False
+
+    def overlay_tap(self):
+        """Orb tapped on the pill: tap to listen, tap again to stop, tap while
+        speaking to interrupt. Owned by the bridge so it works everywhere."""
+        if self._ov_listen:
+            self._ov_listen = False
+            return json.dumps(True)
+        if self._tts:
+            self.stop_speaking()
+            return json.dumps(True)
+        if self._busy or getattr(self, "_mic", None):
+            return json.dumps(True)
+        self._ov_listen = True
+        threading.Thread(target=self._ov_listen_loop, daemon=True).start()
         return json.dumps(True)
 
     def request_pill_enter(self):
@@ -897,7 +1090,10 @@ class Api:
         """Snapshot the floating overlay renders. Real states only."""
         now = time.time()
         state, detail, level = "idle", "", 0.0
-        if getattr(self, "_mic", None):
+        if self._confirm:
+            state = "confirm"
+            detail = self._confirm.get("question", "")
+        elif getattr(self, "_mic", None) or self._ov_mic:
             state = "listening"
             try:
                 level = self.listen_level()
@@ -911,12 +1107,14 @@ class Api:
         elif self._tts:
             state = "responding"
             detail = self._ov_detail
+        elif (now - self._interrupted_ts) < 1.4 and self._interrupted_ts:
+            state = "interrupted"
         elif (now - self._ov_err_ts) < 5.5 and self._ov_err:
             state, detail = "error", self._ov_err
         elif (now - self._ov_done_ts) < 3.8 and (self._ov_final or self._ov_detail):
             state, detail = "done", (self._ov_final or self._ov_detail)
-        active = state in ("listening", "thinking", "acting", "responding", "working", "waiting")
-        linger = state in ("done", "error")
+        active = state in ("listening", "thinking", "acting", "responding", "working", "waiting", "confirm")
+        linger = state in ("done", "error", "interrupted")
         return {
             "state": state,
             "detail": (detail or "")[-180:],

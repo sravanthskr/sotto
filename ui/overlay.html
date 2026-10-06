@@ -9,9 +9,9 @@
 <link rel="stylesheet" href="sotto-tokens.css">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:100%;height:100%;background:var(--ov-bg);overflow:hidden;
+  html,body{width:100%;height:100%;background:transparent;overflow:hidden;
     font-family:var(--font-ui,"Segoe UI",sans-serif);-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
-  body{opacity:1;transition:opacity .22s ease}
+  body{opacity:1;transition:opacity .28s ease}
   body.bye{opacity:0}
 
   html[data-theme="light"]{--ov-bg:#FFFFFF;--ov-line:rgba(23,28,33,.14);--ov-hi:inset 0 0 0 1px rgba(23,28,33,.10), inset 0 1px 0 rgba(255,255,255,.6);}
@@ -19,8 +19,8 @@
 
   #wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:0}
   #pill{display:flex;align-items:center;gap:11px;width:100%;height:100%;
-    padding:0 16px 0 11px;background:var(--ov-bg);
-    box-shadow:var(--ov-hi)}
+    padding:0 16px 0 11px;background:var(--ov-bg);border-radius:0;
+    box-shadow:inset 0 0 0 1px rgba(23,28,33,.10)}
   #pill.anim{animation:enter .26s cubic-bezier(.3,.6,.25,1) both}
   @keyframes enter{from{opacity:0}to{opacity:1}}
 
@@ -33,6 +33,8 @@
   body[data-state="responding"] #orb i{background:var(--accent-strong);animation:pulse 1.5s ease-in-out infinite}
   body[data-state="done"] #orb i{background:var(--success)}
   body[data-state="error"] #orb i{background:var(--danger)}
+  body[data-state="interrupted"] #orb i{background:var(--danger)}
+  body[data-state="confirm"] #orb i{background:var(--accent-strong)}
   @keyframes pulse{0%,100%{transform:scale(.82);opacity:.72}50%{transform:scale(1.12);opacity:1}}
 
   #col{min-width:0;flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;gap:1px}
@@ -54,6 +56,14 @@
   #expand:hover{color:var(--ink)}
   html[data-theme="dark"] #expand:hover{background:rgba(226,232,240,.10)}
   html[data-theme="light"] #expand:hover{background:rgba(23,28,33,.07)}
+
+  #cbtns{display:none;align-items:center;gap:6px;flex:0 0 auto}
+  body[data-state="confirm"] #cbtns{display:flex}
+  body[data-state="confirm"] #bars,body[data-state="confirm"] #expand{display:none}
+  #cbtns button{height:26px;padding:0 12px;border-radius:999px;border:1px solid var(--ov-line);
+    background:transparent;color:var(--ink-2);font:600 11.5px var(--font-ui,"Segoe UI",sans-serif);
+    cursor:pointer;white-space:nowrap}
+  #cbtns #cy{background:var(--accent);border-color:transparent;color:#0d1418}
 </style>
 </head>
 <body data-state="idle">
@@ -64,6 +74,7 @@
     <span id="detail"></span>
   </div>
   <div id="bars"><i></i><i></i><i></i><i></i><i></i></div>
+  <div id="cbtns"><button id="cn">Cancel</button><button id="cy">Do it</button></div>
   <button id="expand" title="Open Sotto" aria-label="Open Sotto">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M14 4h6v6"/><path d="M20 4l-6.5 6.5"/><path d="M10 20H4v-6"/><path d="M4 20l6.5-6.5"/>
@@ -75,7 +86,8 @@
   const $ = (id) => document.getElementById(id);
   const body = document.body, pill = $('pill');
   const LABEL = {idle:'Sotto', listening:'Listening', thinking:'Thinking', acting:'Working',
-                 responding:'Speaking', done:'Done', error:"Couldn't finish"};
+                 responding:'Speaking', done:'Done', error:"Couldn't finish",
+                 confirm:'Confirm', interrupted:'Stopped', waiting:'Listening'};
   let cur = {state:null, detail:null, theme:null, wasVisible:false};
   let level = 0, jitter = 0;
 
@@ -130,6 +142,8 @@
 
   $('orb').addEventListener('click', () => { const a = api(); if (a) try { a.overlay_tap(); } catch (e) {} });
   $('expand').addEventListener('click', () => { const a = api(); if (a) try { a.overlay_expand(); } catch (e) {} });
+  $('cn').addEventListener('click', () => { const a = api(); if (a) try { a.overlay_confirm(false); } catch (e) {} });
+  $('cy').addEventListener('click', () => { const a = api(); if (a) try { a.overlay_confirm(true); } catch (e) {} });
 </script>
 </body>
 </html>

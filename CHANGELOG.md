@@ -16,6 +16,12 @@ All notable changes to Sotto are recorded in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Commands like "open telegram" no longer die quietly: when a model leaks a tool call as text, it is now parsed (JSON or XML form) and actually executed.
+- Replies can no longer leak internal thinking: the recovery path is guarded end-to-end, and an empty draft now gets a clean fallback instead of a confused rewrite.
+- Overlay pill presence is now smooth: no flash at launch, it waits for the switch to settle before appearing, and fades in/out cleanly.
+
+
 ### Changed
 - Floating overlay rebuilt: a small frameless always-on-top pill now appears over other apps while Sotto is listening, thinking, working or speaking - then fades away when the task is done. It uses the app's own design system, shows live state with real microphone levels, and never steals focus. Tap the orb to talk, the arrow to reopen Sotto; Ctrl+Space summons it from anywhere. (The experimental tkinter pill is gone.)
 
