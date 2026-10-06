@@ -418,6 +418,11 @@ class Api:
                 loud = 0
                 last_loud = t0
                 max_lvl = 0.0
+                try:
+                    from config import load_settings as _lset
+                    end_sil = float(_lset().get("voice_end_silence", 1.2) or 1.2)
+                except Exception:
+                    end_sil = 1.2
                 while True:
                     time.sleep(0.05)
                     if self._voice_cancel_req:
@@ -444,7 +449,7 @@ class Api:
                     silent_for = time.time() - last_loud
                     if self._voice_stop_req:
                         break
-                    if el > 1.0 and heard and silent_for > 1.4:
+                    if el > 1.0 and heard and silent_for > end_sil:
                         break
                     if not heard and el > 9.0:
                         break
@@ -910,14 +915,19 @@ class Api:
                 MOD_CONTROL = 0x0002
                 VK_SPACE = 0x20
                 
-                if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL, VK_SPACE):
-                    _log("RegisterHotKey failed (may already be registered)")
+                ok1 = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL, VK_SPACE))
+                HOTKEY_ID2 = 102
+                MOD_SHIFT = 0x0004
+                VK_S = 0x53
+                ok2 = bool(user32.RegisterHotKey(None, HOTKEY_ID2, MOD_CONTROL | MOD_SHIFT, VK_S))
+                _log(f"hotkeys registered: Ctrl+Space={ok1} Ctrl+Shift+S={ok2}")
+                if not ok1 and not ok2:
                     return
                 
                 msg = wintypes.MSG()
                 while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
                     if msg.message == 0x0312:  # WM_HOTKEY
-                        _log("Global hotkey Ctrl+Space pressed")
+                        _log("Global hotkey pressed")
                         try:
                             if getattr(self, "_voice_active", False):
                                 self.voice_stop()
