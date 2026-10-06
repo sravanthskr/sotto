@@ -177,16 +177,11 @@ class VoiceCapture:
                         raw = raw[:frame_b]
                         recv += 1
                         smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
-                        rms0 = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
-                        if rms0 > gpeak:
-                            gpeak = rms0
+                        rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
+                        if rms > gpeak:
+                            gpeak = rms
                         elif gpeak > 0:
                             gpeak *= 0.9995
-                        gain = 2.5 if gpeak < 0.12 else (1.8 if gpeak < 0.28 else 1.0)
-                        if gain != 1.0:
-                            smp = np.clip(smp * gain, -0.98, 0.98)
-                            raw = (smp * 32767.0).astype("int16").tobytes()
-                        rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
                         if rms > peak:
                             peak = rms
                         self.level = min(1.0, rms / 0.25)
@@ -211,7 +206,7 @@ class VoiceCapture:
                             preroll.append(raw)
                             voiced = voiced + 1 if speech else 0
                             voiced2 = voiced2 + 1 if speech2 else 0
-                            if voiced >= 3 or voiced2 >= 10:
+                            if voiced >= 3 or voiced2 >= 14:
                                 started = True
                                 self.heard = True
                                 frames = list(preroll)

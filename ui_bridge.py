@@ -1225,6 +1225,7 @@ class Api:
                 text, _err = transcribe_wav(wav)
                 text = (text or "").strip()
                 if not text:
+                    _log("wake-word: heard something but no words (skipped)")
                     continue
                 low = text.lower()
                 phrase, idx = self._wake_match(low)
