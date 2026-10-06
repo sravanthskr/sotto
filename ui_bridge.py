@@ -51,7 +51,7 @@ def _status_rows(text):
 _META_PATTERNS = (
     "the user is asking", "the user wants", "the user said", "the user might",
     "the user asks", "i should", "i need to", "i can't rewrite", "provided a draft",
-    "no draft", "rewrite the draft", "meta-commentary", "the instruction says",
+    "see a draft", "draft to rewrite", "no draft", "rewrite the draft", "meta-commentary", "the instruction says",
     "looking at the conversation", "first user message", "let me think about",
     "let me use", "let me check", "i will use", "i can use", "as the final reply",
     "not mention", "step 1:",
