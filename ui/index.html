@@ -285,6 +285,21 @@
       <div class="s-info"><span class="s-lab">Floating overlay</span><span class="s-sub">When you're in another app, a small pill floats on top showing whether I'm idle, listening, thinking or speaking. Off means I stay invisible in the background.</span></div>
       <button class="switch" id="overlaySwitch" aria-pressed="true" aria-label="Floating overlay"><i></i></button>
     </div>
+    <div class="setrow">
+      <div class="s-info"><span class="s-lab">Pill position</span><span class="s-sub">Where the floating pill appears. Drag the pill anywhere - it stays where you leave it.</span></div>
+      <div class="selectwrap">
+        <select id="selPillPos" aria-label="Overlay pill position">
+          <option value="center">Top centre (default)</option>
+          <option value="remember">Last position (where I dragged it)</option>
+          <option value="top_left">Top left</option>
+          <option value="top_right">Top right</option>
+          <option value="bottom_left">Bottom left</option>
+          <option value="bottom_right">Bottom right</option>
+          <option value="bottom_center">Bottom centre</option>
+        </select>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+      </div>
+    </div>
 
     <span class="group-label">Security</span>
     <div class="setrow">

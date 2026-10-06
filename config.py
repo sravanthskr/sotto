@@ -65,6 +65,10 @@ _DEFAULTS = {
     "wake_word_enabled": False,   # experimental: "hey sotto" keyword trigger (uses CPU)
     "wake_word": "hey sotto",     # spoken phrase to activate (only if wake_word_enabled=true)
     "overlay_enabled": True,      # show a small floating status widget when minimised
+    "overlay_pill_pos": "center", # pill position: center | top_left | top_right | bottom_left |
+                                  # bottom_right | bottom_center | remember (stays where dragged)
+    "overlay_pill_x": None,       # last dragged position (used when overlay_pill_pos="remember")
+    "overlay_pill_y": None,
 }
 
 

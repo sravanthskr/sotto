@@ -932,6 +932,7 @@ class Api:
             "wake_enabled": bool(config.load_settings().get("wake_word_enabled")),
             "wake_word": str(config.load_settings().get("wake_word") or "hey sotto"),
             "overlay_enabled": bool(self._overlay_enabled),
+            "pill_pos": str(config.load_settings().get("overlay_pill_pos") or "center"),
             "memory": self.assistant.memory.facts(),
             "notes": [n["text"] for n in self.assistant.notes.list(50)],
             "reminders": self.assistant.reminders.list(),
@@ -1415,6 +1416,35 @@ class Api:
         ok = bool(save_setting("overlay_enabled", on))
         self._overlay_enabled = on
         _log(f"set_overlay -> {on} ok={ok}")
+        return json.dumps(ok)
+
+    def get_pill_pos(self):
+        try:
+            from config import load_settings
+            st = load_settings()
+            return json.dumps({"pos": str(st.get("overlay_pill_pos") or "center"),
+                               "x": st.get("overlay_pill_x"), "y": st.get("overlay_pill_y")})
+        except Exception:
+            return json.dumps({"pos": "center"})
+
+    def set_pill_pos(self, pos):
+        """Persist where the floating pill should appear (Settings -> Pill position)."""
+        from config import save_setting
+        pos = str(pos or "center").strip().lower()
+        if pos not in ("center", "remember", "top_left", "top_right",
+                       "bottom_left", "bottom_right", "bottom_center"):
+            pos = "center"
+        ok = bool(save_setting("overlay_pill_pos", pos))
+        # apply right away when possible (the pill re-applies on every show anyway)
+        try:
+            if self._overlay_window is not None:
+                import overlay_win as _ow
+                h = _ow._overlay_hwnd()
+                if h:
+                    _ow._position(self._overlay_window, h)
+        except Exception:
+            pass
+        _log(f"set_pill_pos -> {pos} ok={ok}")
         return json.dumps(ok)
 
     def _confirm_cb(self, question, detail):

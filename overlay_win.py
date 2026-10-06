@@ -23,6 +23,7 @@ OVERLAY = Path(__file__).parent / "ui" / "overlay.html"
 WIN_W, WIN_H = 452, 60
 RADIUS = 28
 TOP_MARGIN = 12
+PILL_BOTTOM_MARGIN = 56
 
 _STATE = {"loaded": False}   # overlay page finished loading
 
@@ -139,12 +140,94 @@ def _scale_for(hwnd):
         return 1.0
 
 
+def _pill_xy(hwnd):
+    """Where the pill should sit (logical coords), from settings.
+
+    overlay_pill_pos: center (default), top_left / top_right / bottom_left /
+    bottom_right / bottom_center, or "remember" (last dragged position).
+    """
+    from config import load_settings
+    st = load_settings()
+    pos = str(st.get("overlay_pill_pos") or "center").strip().lower()
+    s = _scale_for(hwnd) or 1.0
+    u = ctypes.windll.user32
+    vx = u.GetSystemMetrics(76) / s
+    vy = u.GetSystemMetrics(77) / s
+    vw = u.GetSystemMetrics(78) / s
+    vh = u.GetSystemMetrics(79) / s
+    m = TOP_MARGIN
+    x = y = None
+    if pos == "remember":
+        try:
+            x = float(st.get("overlay_pill_x"))
+            y = float(st.get("overlay_pill_y"))
+        except Exception:
+            x = y = None
+    if x is None or y is None:
+        if pos == "top_left":
+            x, y = vx + m, vy + m
+        elif pos == "top_right":
+            x, y = vx + vw - WIN_W - m, vy + m
+        elif pos == "bottom_left":
+            x, y = vx + m, vy + vh - WIN_H - PILL_BOTTOM_MARGIN
+        elif pos == "bottom_right":
+            x, y = vx + vw - WIN_W - m, vy + vh - WIN_H - PILL_BOTTOM_MARGIN
+        elif pos == "bottom_center":
+            x, y = vx + (vw - WIN_W) / 2, vy + vh - WIN_H - PILL_BOTTOM_MARGIN
+        else:  # center (default): top centre, exactly as before
+            x, y = vx + (vw - WIN_W) / 2, vy + m
+    x = min(max(x, vx + 4), vx + vw - WIN_W - 4)
+    y = min(max(y, vy + 4), vy + vh - WIN_H - 4)
+    return int(x), int(y)
+
+
+_WINXY = {"err_logged": False}
+
+
+def _win_xy(win):
+    """Current window top-left in the same logical units win.move() takes."""
+    try:
+        return int(win.x), int(win.y)
+    except Exception as e:
+        if not _WINXY["err_logged"]:
+            _WINXY["err_logged"] = True
+            try:
+                from ui_bridge import _log
+                _log(f"overlay: win.x unreadable ({type(e).__name__}: {e}); using Win32 fallback")
+            except Exception:
+                pass
+    try:
+        h = _overlay_hwnd()
+        r = _RC()
+        if h and ctypes.windll.user32.GetWindowRect(h, ctypes.byref(r)):
+            s = _scale_for(h) or 1.0
+            return int(round(r.l / s)), int(round(r.t / s))
+    except Exception:
+        pass
+    return None
+
+
+def _save_pill_pos(x, y):
+    """Persist a dragged position; the pill now always returns here."""
+    try:
+        from config import load_settings as _lsp, save_setting as _ssp
+        st = _lsp()
+        x, y = int(x), int(y)
+        if (str(st.get("overlay_pill_pos")) == "remember"
+                and st.get("overlay_pill_x") == x and st.get("overlay_pill_y") == y):
+            return False
+        _ssp("overlay_pill_pos", "remember")
+        _ssp("overlay_pill_x", x)
+        _ssp("overlay_pill_y", y)
+        return True
+    except Exception:
+        return False
+
+
 def _position(win, hwnd):
     try:
-        u = ctypes.windll.user32
-        sw = u.GetSystemMetrics(0)
-        s = _scale_for(hwnd)
-        win.move(int((sw / s - WIN_W) / 2), TOP_MARGIN)
+        x, y = _pill_xy(hwnd)
+        win.move(x, y)
     except Exception:
         pass
 
@@ -283,8 +366,35 @@ def start_overlay_controller(api, overlay_win, main_win):
     - minimised / switched to other app  -> pill visible (shows live state,
       or a quiet 'Sotto' presence when idle)
     - app not launched yet / closing     -> pill hidden
+
+    Position: the pill can be dragged anywhere; the new spot is remembered
+    (settings overlay_pill_pos="remember") so it always comes back there.
     """
     from ui_bridge import _log
+
+    pos_state = {"last": None, "dirty_at": 0.0, "target": None, "no_read_logged": False}
+
+    def save_pos(cur, why):
+        if _save_pill_pos(cur[0], cur[1]):
+            pos_state["target"] = cur
+            _log(f"overlay: pill position saved ({cur[0]},{cur[1]}) ({why})")
+            try:
+                api._push({"type": "settings_changed", "key": "overlay_pill_pos",
+                           "value": "remember"})
+            except Exception:
+                pass
+
+    def remember_if_moved(why):
+        try:
+            cur = _win_xy(overlay_win)
+            tgt = pos_state["target"]
+            if not cur or not tgt:
+                return
+            if abs(cur[0] - tgt[0]) <= 5 and abs(cur[1] - tgt[1]) <= 5:
+                return
+            save_pos(cur, why)
+        except Exception:
+            pass
 
     def setup_when_ready():
         for _ in range(80):
@@ -316,6 +426,7 @@ def start_overlay_controller(api, overlay_win, main_win):
                 # expand clicked on the pill -> bring the main window back
                 if api.overlay_expand_pending():
                     if visible:
+                        remember_if_moved("expand")
                         _fade_then_hide(overlay_win)
                         visible = False
                     try:
@@ -338,6 +449,7 @@ def start_overlay_controller(api, overlay_win, main_win):
 
                 if not api.overlay_on():
                     if visible:
+                        remember_if_moved("overlay-off")
                         _fade_then_hide(overlay_win)
                         visible = False
                     continue
@@ -381,10 +493,21 @@ def start_overlay_controller(api, overlay_win, main_win):
                     want = False
 
                 if want and not visible:
+                    # position may have changed in Settings: apply before each show
+                    try:
+                        h0 = _overlay_hwnd()
+                        if h0:
+                            _position(overlay_win, h0)
+                            pos_state["target"] = _pill_xy(h0)
+                    except Exception:
+                        pos_state["target"] = None
                     _show_noactivate(overlay_win)
                     visible = True
+                    pos_state["last"] = None
+                    pos_state["dirty_at"] = 0.0
                     _log("overlay: pill shown")
                 elif not want and visible:
+                    remember_if_moved("hide")
                     _fade_then_hide(overlay_win)
                     visible = False
                     suppress_until = time.time() + 1.2
@@ -398,6 +521,28 @@ def start_overlay_controller(api, overlay_win, main_win):
                         except Exception:
                             pass
                         _log("overlay: pill hidden (resync)")
+
+                # --- the pill stays where the user drags it ---------------
+                if visible:
+                    cur = _win_xy(overlay_win)
+                    if not cur and not pos_state.get("no_read_logged"):
+                        pos_state["no_read_logged"] = True
+                        _log("overlay: pill position unreadable this tick (retrying)")
+                    if cur:
+                        if not pos_state["target"]:
+                            pos_state["target"] = cur
+                        tgt = pos_state["target"]
+                        if abs(cur[0] - tgt[0]) <= 5 and abs(cur[1] - tgt[1]) <= 5:
+                            pos_state["last"] = cur
+                            pos_state["dirty_at"] = 0.0
+                        elif cur != pos_state["last"]:
+                            if pos_state["last"]:
+                                _log(f"overlay: pill moved to ({cur[0]},{cur[1]}) while visible")
+                            pos_state["last"] = cur
+                            pos_state["dirty_at"] = time.time()
+                        elif pos_state["dirty_at"] and (time.time() - pos_state["dirty_at"]) >= 1.3:
+                            pos_state["dirty_at"] = 0.0
+                            save_pos(cur, "drag")
             except Exception as e:
                 _log(f"overlay controller error: {type(e).__name__}: {e}")
                 time.sleep(1.5)

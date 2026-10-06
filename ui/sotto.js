@@ -278,6 +278,16 @@
     });
   }
 
+  async function refreshPillPos() {
+    const sp = $('#selPillPos');
+    if (!sp) return;
+    const raw = await callIf('get_pill_pos');
+    try {
+      const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (v && v.pos) sp.value = v.pos;
+    } catch {}
+  }
+
   /* ---- floating pill: when you leave Sotto, its own window shrinks to a
      pill that floats above everything. Exposed on window because the Python
      visibility controller drives it via evaluate_js. ---- */
@@ -642,6 +652,9 @@
         setState(e.name);
       }
       else if (e.type === 'notice') { toast(e.text || '', 'HEARD', 3200); scheduleAutoListen(); }
+      else if (e.type === 'settings_changed' && e.key === 'overlay_pill_pos') {
+        const sp = $('#selPillPos'); if (sp && e.value) sp.value = e.value;
+      }
     }
   }
   setInterval(idlePoll, 350);
@@ -1061,6 +1074,7 @@
     if (id === 'sheetHistory') loadHistory();
     if (id === 'sheetMemory') loadMemory();
     if (id === 'sheetSettings') closeQuick();
+    if (id === 'sheetSettings') refreshPillPos();
     openSheet(id);
   }
   function openSheet(id) {
@@ -1280,6 +1294,7 @@
         const wwi = $('#wakeWordInput');
         if (wwi && !wwi.value) wwi.value = info.wake_word || 'hey sotto';
         if (info.overlay_enabled === false) setOverlayUI(false);
+        const sp0 = $('#selPillPos'); if (sp0 && info.pill_pos) sp0.value = info.pill_pos;
         refreshAccounts();
         checkAppLock();
         if (info.scan_needed) {
@@ -1460,6 +1475,19 @@
         toast(on ? 'Overlay on — I float over other apps' : 'Overlay off — background only', 'SETTING', 2200);
       });
     });
+    const selP = $('#selPillPos');
+    if (selP) {
+      selP.addEventListener('change', () => {
+        callIf('set_pill_pos', selP.value);
+        toast('Pill position saved', 'SETTING', 1800);
+      });
+      callIf('get_pill_pos').then((raw) => {
+        try {
+          const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          if (v && v.pos) selP.value = v.pos;
+        } catch {}
+      });
+    }
     $$('#segThemeQuick button').forEach(b => b.addEventListener('click', () => applyThemePref(b.dataset.themeSet)));
     $('#motionSwitch').addEventListener('click', (e) => {
       const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
