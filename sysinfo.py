@@ -80,7 +80,8 @@ def top_processes(limit=5, by="cpu"):
                          float(proc.memory_percent() or 0.0)))
         except Exception:
             continue
-    idx = 2 if str(by).lower().startswith("mem") else 1
+    _b = str(by or "cpu").lower().strip()
+    idx = 2 if (_b.startswith("mem") or _b in ("ram", "usage", "percent", "memory%")) else 1
     rows.sort(key=lambda t: t[idx], reverse=True)
     named = [r for r in rows if r[0] != "?"]
     rows = named or rows

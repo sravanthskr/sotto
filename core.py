@@ -146,12 +146,18 @@ class Assistant:
                            "google": "search_web", "play": "play_media",
                            "screenshot": "take_screenshot", "volume": "set_volume",
                            "weather": "get_weather", "note": "add_note",
-                           "remind": "set_reminder"}
+                           "remind": "set_reminder",
+                           "processes": "top_processes", "list_processes": "top_processes",
+                           "check_processes": "top_processes", "get_processes": "top_processes",
+                           "ram": "top_processes", "memory": "top_processes",
+                           "memory_usage": "top_processes", "system_resources": "top_processes",
+                           "resources": "top_processes", "task_manager": "top_processes",
+                           "cpu": "top_processes", "performance": "top_processes"}
                 name = aliases.get(name, name)
                 if name not in tools.REGISTRY:
                     try:
                         import difflib
-                        close = difflib.get_close_matches(name, list(tools.REGISTRY.keys()), n=1, cutoff=0.8)
+                        close = difflib.get_close_matches(name, list(tools.REGISTRY.keys()), n=1, cutoff=0.72)
                         if close:
                             name = close[0]
                     except Exception:
@@ -173,7 +179,9 @@ class Assistant:
                                "name": "app_name", "target": "app_name", "title": "app_name",
                                "site": "url", "link": "url", "website": "url", "address": "url",
                                "q": "query", "text": "query", "search": "query", "term": "query",
-                               "what": "query", "level": "percent", "value": "percent"}
+                               "what": "query", "level": "percent", "value": "percent",
+                               "sort_by": "by", "sort": "by", "metric": "by",
+                               "order": "by", "kind": "by"}
                         fixed, used = {}, set()
                         for k, v in args.items():
                             key = k if k in allowed else None
@@ -193,6 +201,13 @@ class Assistant:
                 return {"id": "textcall0", "type": "function",
                         "function": {"name": name, "arguments": json.dumps(args)}}
 
+            im = _re.search(r"<invoke\s+name=\"([^\"]+)\"", body)
+            if im:
+                name = im.group(1)
+                args = {}
+                for pm in _re.finditer(r"<parameter\s+name=\"([^\"]+)\">\s*([\s\S]*?)\s*</parameter>", body):
+                    args[pm.group(1).strip()] = pm.group(2).strip()
+                return _mk(name, args)
             fm = _re.search(r"<function=([^>\s]+)>", body)
             if fm:
                 name = fm.group(1)
@@ -216,6 +231,17 @@ class Assistant:
                         cand = None
             if not isinstance(cand, dict):
                 return None
+            tc = cand.get("tool_calls")
+            if isinstance(tc, list) and tc:
+                inner = tc[0] or {}
+                if isinstance(inner, dict):
+                    fn2 = inner.get("function")
+                    if isinstance(fn2, dict):
+                        return _mk(fn2.get("name"), fn2.get("arguments") or fn2.get("args") or {})
+                    return _mk(inner.get("name"), inner.get("arguments") or {})
+            fc = cand.get("function_call")
+            if isinstance(fc, dict) and fc.get("name"):
+                return _mk(fc.get("name"), fc.get("arguments") or {})
             name = cand.get("tool") or cand.get("name") or cand.get("function")
             args = cand.get("arguments") or cand.get("args") or cand.get("parameters") or {}
             if isinstance(name, dict):

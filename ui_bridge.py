@@ -367,6 +367,46 @@ class Api:
                         self._push({"type": "error",
                                     "text": "I didn't get a usable response - one more try..."})
                         return
+            # promise-guard: a bare promise of future action is not an answer
+            try:
+                _pl = (reply or "").strip().lower()
+                _promise = False
+                _verbs = ("check", "look", "find", "see ", "verify", "scan", "search",
+                          "get ", "pull up", "read", "review", "run", "try", "investigate")
+                if _pl and len(_pl) < 220 and not getattr(self, "_turn_tools", None):
+                    import re as _rp
+                    _starts = (r"^i'?ll ", r"^i will ", r"^let me ", r"^i'?m going to ",
+                               r"^i am going to ", r"^one moment", r"^hold on", r"^checking",
+                               r"^i'?m checking", r"^give me a moment", r"^just a moment")
+                    _promise = any(_rp.match(p, _pl) for p in _starts) and any(v in _pl for v in _verbs)
+                if _promise:
+                    _log("promise-guard: only a promise, no action -> forcing a real attempt")
+                    _nudge = ("Do not promise and do not narrate plans. Use your tools NOW to "
+                              "perform the task, then report the actual result.\nTask: " + text)
+                    try:
+                        _r2 = self.assistant.ask(_nudge) or ""
+                    except Exception as _pe:
+                        _log(f"promise-guard retry failed: {_pe}")
+                        _r2 = ""
+                    _pl2 = (_r2 or "").strip().lower()
+                    _p2 = False
+                    if _pl2 and len(_pl2) < 220:
+                        import re as _rp2
+                        _starts2 = (r"^i'?ll ", r"^i will ", r"^let me ", r"^one moment",
+                                    r"^hold on", r"^checking", r"^i'?m checking")
+                        _p2 = any(_rp2.match(p, _pl2) for p in _starts2) and any(v in _pl2 for v in _verbs)
+                    if (_r2 or "").strip() and not _p2:
+                        reply = _r2
+                        _rem4, self._buf = self._buf.strip(), ""
+                        if _rem4:
+                            self._flush_say(_rem4)
+                        if self._turn_leak:
+                            reply = self._repair(reply or "")
+                    else:
+                        reply = ("Sorry - I couldn't carry that out just now. "
+                                 "Could you say it once more?")
+            except Exception as _pg:
+                _log(f"promise-guard error: {_pg}")
             self._last_reply = reply
             self.session.setdefault("messages", []).append(
                 {"role": "assistant", "text": reply, "ts": time.time()})
