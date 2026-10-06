@@ -994,12 +994,9 @@ class Api:
                 VK_SPACE = 0x20
                 
                 ok1 = bool(user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL, VK_SPACE))
-                HOTKEY_ID2 = 102
-                MOD_SHIFT = 0x0004
-                VK_S = 0x53
-                ok2 = bool(user32.RegisterHotKey(None, HOTKEY_ID2, MOD_CONTROL | MOD_SHIFT, VK_S))
-                _log(f"hotkeys registered: Ctrl+Space={ok1} Ctrl+Shift+S={ok2}")
-                if not ok1 and not ok2:
+                # Ctrl+Shift+S must stay free: it is the in-app Settings shortcut.
+                _log(f"hotkey registered: Ctrl+Space={ok1}")
+                if not ok1:
                     return
                 
                 msg = wintypes.MSG()

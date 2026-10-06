@@ -61,7 +61,7 @@ _DEFAULTS = {
     "lock_password": "",          # fallback text password for unlock & changing security settings
     # --- Continuous / hands-free features ---
     "continuous_listen": True,    # after a reply, automatically start listening again
-    "wake_hotkey": "ctrl+shift+s", # global hotkey to activate from anywhere (even minimised)
+    "wake_hotkey": "ctrl+space", # global hotkey to activate from anywhere (even minimised)
     "wake_word_enabled": False,   # experimental: "hey sotto" keyword trigger (uses CPU)
     "wake_word": "hey sotto",     # spoken phrase to activate (only if wake_word_enabled=true)
     "overlay_enabled": True,      # show a small floating status widget when minimised
@@ -141,7 +141,7 @@ VOICE_MODELS_DIR = DATA_DIR / "voices"
 
 # Hands-free / overlay settings
 CONTINUOUS_LISTEN = bool(_SETTINGS.get("continuous_listen", True))
-WAKE_HOTKEY = str(_SETTINGS.get("wake_hotkey", "ctrl+shift+s"))
+WAKE_HOTKEY = str(_SETTINGS.get("wake_hotkey", "ctrl+space"))
 WAKE_WORD_ENABLED = bool(_SETTINGS.get("wake_word_enabled", False))
 WAKE_WORD = str(_SETTINGS.get("wake_word", "hey sotto"))
 OVERLAY_ENABLED = bool(_SETTINGS.get("overlay_enabled", True))

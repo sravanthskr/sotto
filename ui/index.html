@@ -6,8 +6,9 @@
 <title>Sotto</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&family=Schibsted+Grotesk:wght@400;500;600&family=Spline+Sans+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="sotto-tokens.css">
-<link rel="stylesheet" href="sotto.css?v=7">
+<!-- ui assets carry a ?v= cache-buster: bump it whenever the file changes (WebView2 caches file:// resources) -->
+<link rel="stylesheet" href="sotto-tokens.css?v=1">
+<link rel="stylesheet" href="sotto.css?v=8">
 </head>
 <body data-theme="light" data-mode="home" data-state="idle">
 
@@ -226,6 +227,10 @@
       <span class="kbd">Space</span>
     </div>
     <div class="setrow">
+      <div class="s-info"><span class="s-lab">Talk - from any app</span><span class="s-sub">Works even when Sotto is minimised</span></div>
+      <span class="kbd">Ctrl Space</span>
+    </div>
+    <div class="setrow">
       <div class="s-info"><span class="s-lab">Type instead</span><span class="s-sub">Jump straight into the text input</span></div>
       <span class="kbd">Ctrl K</span>
     </div>
@@ -428,7 +433,7 @@
 </section>
 
 <!-- Fullscreen Lock Screen Overlay -->
-<div id="lockOverlay" class="lock-overlay" style="position:fixed;inset:0;z-index:9999;background:var(--bg,#0D0F12);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;transition:opacity .35s ease,visibility .35s ease" hidden>
+<div id="lockOverlay" class="lock-overlay" style="position:fixed;inset:0;z-index:9999;background:var(--bg,#14171B);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;transition:opacity .35s ease,visibility .35s ease" hidden>
   <div style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:20px">
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent,#8A9A5B)"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
   </div>
@@ -469,6 +474,6 @@
 <div class="toast" id="toast" role="status"><span class="tt" id="toastTag">SOTTO</span><span id="toastMsg"></span></div>
 <p class="sr-only" id="sr" role="status" aria-live="polite"></p>
 
-<script src="sotto.js?v=5"></script>
+<script src="sotto.js?v=6"></script>
 </body>
 </html>

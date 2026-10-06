@@ -140,7 +140,7 @@ def main():
         width=1180,
         height=780,
         min_size=(760, 580),
-        background_color="#0a0a0b",
+        background_color="#14171B",
     )
     _apply_window_icon(window)
 

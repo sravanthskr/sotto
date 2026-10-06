@@ -506,7 +506,7 @@ class PageDone(QWidget):
         lay.addSpacing(16)
         for tip in [
             "\U0001f4ac  Press Space or the mic button to start talking.",
-            "\u2328\ufe0f   Ctrl+Shift+S from anywhere wakes Sotto up.",
+            "\u2328\ufe0f   Ctrl+Space from anywhere wakes Sotto up.",
             "\u2699\ufe0f   Settings are in the \u2261 menu \u2014 change anything any time.",
             "\U0001f515  Say \u2018stop\u2019 while Sotto is speaking to interrupt it.",
         ]:

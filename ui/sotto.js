@@ -1687,7 +1687,7 @@
         if (k === 'd') { e.preventDefault(); $('#btnTheme').click(); return; }
       }
       const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
-      if (e.code === 'Space' && !typing && !body.classList.contains('sheet-open')) {
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !typing && !body.classList.contains('sheet-open')) {
         e.preventDefault();
         if (e.repeat) return;
         if (speaking) { stopSpeaking(); return; }
@@ -1697,7 +1697,7 @@
     });
     document.addEventListener('keyup', (e) => {
       const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
-      if (e.code === 'Space' && !typing) {
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !typing) {
         e.preventDefault();
       }
     });
