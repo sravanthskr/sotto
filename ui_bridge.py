@@ -446,11 +446,9 @@ class Api:
                 self._push({"type": "notice", "text": "I didn't quite catch that."})
                 self._push({"type": "state", "name": "idle"})
                 return
-            if self._main_visible():
-                self._push({"type": "voice_text", "text": text})
-            else:
-                self._ov_turn = True
-                self.send(text)
+            self._push({"type": "user_text", "text": text})
+            self._ov_turn = True
+            self.send(text)
 
         import threading
         threading.Thread(target=worker, daemon=True).start()
@@ -970,6 +968,7 @@ class Api:
                 self._push({"type": "notice", "text": "I didn't quite catch that."})
                 self._push({"type": "state", "name": "idle"})
                 return
+            self._push({"type": "user_text", "text": text})
             self._ov_turn = True
             self.send(text)
         except Exception as e:
@@ -1011,9 +1010,16 @@ class Api:
                 if not cap._done.is_set():
                     cap.stop_now()
                 wav = cap.stop()
-                if not self._wake_on or not cap.heard:
+                st = cap.stats or {}
+                if cap.error:
+                    _log(f"wake-word capture error: {cap.error}")
+                if not cap.heard:
+                    _log(f"wake-word: capture ended - nothing heard (err={cap.error})")
                     continue
-                if float((cap.stats or {}).get("peak", 1.0)) < 0.012:
+                if not self._wake_on:
+                    continue
+                if float(st.get("peak", 1.0)) < 0.010:
+                    _log(f"wake-word: low-level capture skipped peak={st.get('peak')}")
                     continue
                 text, _err = transcribe_wav(wav)
                 text = (text or "").strip()
@@ -1024,14 +1030,30 @@ class Api:
                 if kw and kw in low:
                     phrase, idx = kw, low.find(kw)
                 if idx < 0:
-                    for extra in ("hey sotto", "hey soto", "ok sotto", "ok soto",
-                                  "okay sotto", "okay soto", "hi sotto", "sotto", "soto"):
+                    for extra in ("hey sotto", "hey soto", "hey sato", "hey shato", "hey shoto",
+                                  "ok sotto", "ok soto", "ok sato", "okay sotto", "okay soto", "okay sato",
+                                  "hi sotto", "hi sato", "sotto", "soto", "sato", "shato", "shoto", "satoh", "soda"):
                         j = low.find(extra)
                         if j >= 0:
                             phrase, idx = extra, j
                             break
                 if idx < 0:
-                    st = cap.stats or {}
+                    try:
+                        import difflib
+                        import re as _re3
+                        for m in _re3.finditer(r"[a-z']+", low):
+                            wrd = m.group(0)
+                            if len(wrd) < 4:
+                                continue
+                            for tgt in ("sotto", "soto", "sato", "shato", "shoto"):
+                                if difflib.SequenceMatcher(None, wrd, tgt).ratio() >= 0.75:
+                                    phrase, idx = wrd, m.start()
+                                    break
+                            if idx >= 0:
+                                break
+                    except Exception:
+                        pass
+                if idx < 0:
                     _log(f"wake-word ignored {text[:70]!r} dur={st.get('dur')} peak={st.get('peak')}")
                     continue
                 rest = text[idx + len(phrase):].strip(" ,.!?;:-")
@@ -1043,9 +1065,8 @@ class Api:
                 except Exception:
                     pass
                 self._activate_visual()
-                if self._main_visible():
-                    self._push({"type": "wake", "rest": rest, "ts": time.time()})
-                elif rest:
+                if rest:
+                    self._push({"type": "user_text", "text": rest})
                     self._ov_turn = True
                     threading.Thread(target=self.send, args=(rest,),
                                      daemon=True).start()

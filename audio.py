@@ -135,6 +135,7 @@ class VoiceCapture:
         frames = []
         started = False
         voiced = 0
+        voiced2 = 0
         unvoiced = 0
         floor = None
         peak = 0.0
@@ -187,10 +188,12 @@ class VoiceCapture:
                         floor = floor * 1.001
                     gate = max(floor * 1.6, 0.015)
                     speech = bool(vad_speech and rms > gate)
+                    speech2 = bool(vad_speech and rms > max(floor * 1.15, 0.010))
                     if not started:
                         preroll.append(raw)
                         voiced = voiced + 1 if speech else 0
-                        if voiced >= 3:
+                        voiced2 = voiced2 + 1 if speech2 else 0
+                        if voiced >= 3 or voiced2 >= 10:
                             started = True
                             self.heard = True
                             frames = list(preroll)

@@ -625,10 +625,11 @@
     try { events = JSON.parse((await api.poll()) || '[]'); } catch { return; }
     if (!events.length) return;
     if (turnActive) { spillover.push(...events); return; }     // a turn started mid-await
+    callIf('log', 'idlePoll: ' + events.map((x) => x.type).join(','));
     for (const e of events) {
       if (e.type === 'hotkey' || e.type === 'wake') handleActivation(e);
       else if (e.type === 'ov_stop') { try { if (listening) stopListening(); } catch (err) {} }
-      else if (e.type === 'voice_text' && e.text) { send(e.text, true); }
+      else if ((e.type === 'user_text' || e.type === 'voice_text') && e.text) { externalTurn(e.text); }
       else if (e.type === 'state' && e.name) {
         if (e.name === 'listening') { enterListeningUI(); }
         else if (listening) { exitListeningUI(); }
@@ -702,6 +703,7 @@
         }
         else if (e.type === 'speak_only') { speakOut(e.text, { rate: e.rate }); toast(e.rate && e.rate < 1 ? 'Slower' : 'Again', 'VOICE', 1400); }
         else if (e.type === 'learned') { /* quiet */ }
+        else if ((e.type === 'user_text' || e.type === 'voice_text') && e.text) { setTimeout(() => externalTurn(e.text), 50); }
         else if (e.type === 'hotkey' || e.type === 'wake') { handleActivation(e); }
     else if (e.type === 'ov_stop') { try { if (listening) stopListening(); } catch (err) {} }
         else if (e.type === 'done') {
@@ -740,6 +742,71 @@
         clearInterval(poll);
         turnActive = false;
         if (state === 'thinking' || state === 'understanding') setState('responding');
+        setTimeout(() => {
+          if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
+          if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
+          else setState('idle');
+        }, reducedMedia.matches ? 150 : 1200);
+      }
+    }, 90);
+  }
+
+  async function externalTurn(text, viaVoice = true) {
+    text = (text || '').trim();
+    if (!text) return;
+    if (turnActive) { setTimeout(() => externalTurn(text, viaVoice), 700); return; }
+    callIf('log', 'externalTurn: ' + text.slice(0, 80));
+    if (speaking) stopSpeaking(true);
+    lastMsg = text;
+    setMode('exchange');
+    closeSheets();
+    const turn = addTurn(text);
+    addIntent(turn, viaVoice ? 'heard' : 'typed');
+    const voice = addVoice(turn);
+    turn.querySelector('.thinking')?.remove();
+    setState('thinking');
+    const api = bridge();
+    if (!api || !hasApi('poll')) { addNotice(turn, 'The Python bridge is not connected.'); setState('idle'); return; }
+    let said = false;
+    turnActive = true;
+    const poll = setInterval(async () => {
+      let events = [];
+      try { events = JSON.parse((await api.poll()) || '[]'); } catch {}
+      if (spillover.length) { events = spillover.concat(events); spillover.length = 0; }
+      if (events.length) callIf('log', 'poll: ' + events.map((x) => x.type).join(','));
+      for (const e of events) {
+        if (e.type === 'text') { if (!said) { said = true; setState('responding'); } streamWord(voice, e.text); }
+        else if (e.type === 'say') { if (!said) { said = true; setState('responding'); } streamWord(voice, e.text); if (e.speak !== false) speakOut(e.text); }
+        else if (e.type === 'tool') { handleTool(turn, e); }
+        else if (e.type === 'notice') { addNotice(turn, e.text, e.tone || 'info'); }
+        else if (e.type === 'prompt') { showPrompt(escapeHtml(e.text), e.action ? { action: e.action, onAction: () => send(e.say || 'Organise my downloads') } : null); }
+        else if (e.type === 'clear_prompt') { dismissPrompt(); }
+        else if (e.type === 'speaking') { setSpeaking(true); }
+        else if (e.type === 'speaking_end') { endSpeech(); }
+        else if (e.type === 'state' && e.name) { if (e.name !== 'listening' && listening) exitListeningUI(); setState(e.name); }
+        else if (e.type === 'progress') { let th = turn.querySelector('.thinking'); if (!th) th = addThinking(turn, e.label || 'Working'); else { const lbl = th.querySelector('span:last-child'); if (lbl && e.label) lbl.textContent = e.label; } }
+        else if (e.type === 'ask') { said = true; voice.textContent = e.text; setState('waiting'); speakOut(e.text); scrollDown(); }
+        else if (e.type === 'speak_only') { speakOut(e.text, { rate: e.rate }); }
+        else if (e.type === 'done') {
+          callIf('log', 'done');
+          retries = 0;
+          turn.querySelector('.thinking')?.remove();
+          if (!said && e.text) { setState('responding'); streamWord(voice, e.text); }
+          const answer = e.full || (voice.textContent || '').trim();
+          if (answer) { const words = answer.split(/\s+/).length; voice.dataset.len = words <= 3 ? 'short' : words > 18 ? 'long' : 'mid'; respActions(turn, answer); }
+          followups(turn, e.followups || ['Tell me more', 'Do that again', 'Never mind']);
+        }
+        else if (e.type === 'error') {
+          addNotice(turn, e.text);
+          turn.querySelector('.thinking')?.remove();
+          setState('idle');
+        }
+      }
+      let busy = true;
+      try { busy = await api.busy(); } catch {}
+      if (!busy && events.length === 0) {
+        clearInterval(poll);
+        turnActive = false;
         setTimeout(() => {
           if (state === 'listening' || state === 'interrupted' || state === 'waiting' || state === 'acting' || speaking) return;
           if (state === 'responding') { setState('settling'); setTimeout(() => { if (state === 'settling') setState('idle'); }, 900); }
