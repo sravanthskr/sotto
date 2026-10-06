@@ -80,7 +80,15 @@ class VoiceCapture:
 
     def __init__(self, device=None, samplerate=16000, end_silence=0.9,
                  no_speech_timeout=8.0, max_len=45.0, vad_mode=2):
-        self.device = MIC_DEVICE if device is None else device
+        if device is None:
+            try:
+                from config import load_settings as _ls
+                device = _ls().get("mic_device")
+            except Exception:
+                device = None
+            if device is None:
+                device = MIC_DEVICE
+        self.device = device
         self.sr = samplerate
         self.end_silence = max(0.3, float(end_silence or 0.9))
         self.no_speech_timeout = float(no_speech_timeout or 8.0)
@@ -128,7 +136,7 @@ class VoiceCapture:
         started = False
         voiced = 0
         unvoiced = 0
-        noise = None
+        floor = None
         peak = 0.0
         t0 = time.time()
         try:
@@ -165,16 +173,20 @@ class VoiceCapture:
                     self.level = min(1.0, rms / 0.25)
                     if vad is not None:
                         try:
-                            speech = vad.is_speech(raw, self.sr)
+                            vad_speech = vad.is_speech(raw, self.sr)
                         except Exception:
-                            speech = False
+                            vad_speech = False
                     else:
-                        if noise is None:
-                            noise = rms or 0.005
-                        if not started:
-                            noise = noise * 0.96 + rms * 0.04
-                        thresh = max(noise * 2.8, noise + 0.01, 0.012)
-                        speech = rms > thresh
+                        vad_speech = True
+                    # noise floor: tracks the quietest level the mic shows
+                    if floor is None:
+                        floor = rms
+                    elif rms < floor * 1.5:
+                        floor = floor * 0.98 + rms * 0.02
+                    else:
+                        floor = floor * 1.001
+                    gate = max(floor * 1.6, 0.015)
+                    speech = bool(vad_speech and rms > gate)
                     if not started:
                         preroll.append(raw)
                         voiced = voiced + 1 if speech else 0
@@ -183,6 +195,7 @@ class VoiceCapture:
                             self.heard = True
                             frames = list(preroll)
                             self.stats["onset"] = round(el, 2)
+                            self.stats["floor"] = round(floor, 4)
                     else:
                         frames.append(raw)
                         unvoiced = 0 if speech else unvoiced + 1
@@ -200,6 +213,7 @@ class VoiceCapture:
             "vad": "webrtc" if vad is not None else "level",
             "dur": round(len(frames) * 0.03, 2),
             "peak": round(peak, 4),
+            "floor_final": round(floor or 0.0, 4),
             "frames": len(frames),
         })
         self._done.set()

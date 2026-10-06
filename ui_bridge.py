@@ -1001,7 +1001,8 @@ class Api:
                         or time.time() < getattr(self, "_wake_hold", 0.0)):
                     continue
                 kw = str(load_settings().get("wake_word") or "hey sotto").lower().strip()
-                cap = VoiceCapture(end_silence=0.7, no_speech_timeout=1800.0, max_len=12.0)
+                vad_mode = int(load_settings().get("vad_mode", 2) or 2)
+                cap = VoiceCapture(end_silence=0.7, no_speech_timeout=1800.0, max_len=12.0, vad_mode=vad_mode)
                 cap.start(should_stop=lambda: bool(
                     not self._wake_on or self._busy or getattr(self, "_mic", None)
                     or getattr(self, "_tts", False) or getattr(self, "_voice_active", False)
