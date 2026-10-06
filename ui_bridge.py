@@ -181,6 +181,17 @@ class Api:
         if state == "thinking":
             self._push({"type": "state", "name": "thinking", "label": "Thinking."})
 
+    def _tool_confirm(self, name, result):
+        """Remember a clean human confirmation for a tool that just ran."""
+        try:
+            res = str(result or "").strip()
+            confirm = res if (res and len(res) <= 160) else "Done - " + name.replace("_", " ")
+            if not hasattr(self, "_turn_tools"):
+                self._turn_tools = []
+            self._turn_tools.append(confirm)
+        except Exception:
+            pass
+
     def _on_tool(self, name, args, result):
         self._push({"type": "state", "name": "acting", "label": "Working on it…"})
         event = {"type": "tool", "name": name, "result": str(result)}
@@ -232,6 +243,7 @@ class Api:
         self._turn_checked = False
         self._turn_leak = False
         self._ov_reset_turn()
+        self._turn_tools = []
         low = text.lower().strip(" .!?")
         if self._last_reply and low in ("repeat that", "say that again", "say it again", "repeat", "again", "repeat it"):
             self._start_replay({"type": "speak_only", "text": self._last_reply})
@@ -301,10 +313,18 @@ class Api:
             if self._turn_leak:
                 reply = self._repair(reply or "")
             if not (reply or "").strip():
-                _log("EMPTY reply from ask() -> error event (turn never dies silently)")
-                self._push({"type": "error",
-                            "text": "I didn't get a usable response — one more try…"})
-                return
+                if getattr(self, "_turn_tools", None):
+                    reply = self._turn_tools[-1]
+                    _log(f"empty final text after tools -> confirmation: {reply[:80]!r}")
+                    try:
+                        self._flush_say(reply)
+                    except Exception:
+                        pass
+                else:
+                    _log("EMPTY reply from ask() -> error event (turn never dies silently)")
+                    self._push({"type": "error",
+                                "text": "I didn't get a usable response - one more try..."})
+                    return
             self._last_reply = reply
             self.session.setdefault("messages", []).append(
                 {"role": "assistant", "text": reply, "ts": time.time()})
