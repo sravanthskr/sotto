@@ -262,6 +262,7 @@ def _vosk_importable():
 
 
 _WHISPER_CACHE = {"model": None, "name": None}
+_STT_LOCK = threading.Lock()
 
 
 def _whisper_model_name():
@@ -370,19 +371,21 @@ def record_wav(path, seconds=4, device=None):
 
 
 def transcribe_wav(path, initial_prompt=None, vad_filter=True):
-    """Return (text, error). Uses faster-whisper when available, else Vosk."""
-    model = _whisper()
-    if model is not None:
-        try:
-            segments, _info = model.transcribe(
-                str(path), language="en", vad_filter=vad_filter,
-                condition_on_previous_text=False, beam_size=1,
-                initial_prompt=initial_prompt)
-            text = " ".join(seg.text.strip() for seg in segments).strip()
-            return text, None
-        except Exception as e:
-            return None, str(e)
-    return _vosk_transcribe(path)
+    """Return (text, error). Uses faster-whisper when available, else Vosk.
+    Serialized: one transcription at a time (wake / turns / lock)."""
+    with _STT_LOCK:
+        model = _whisper()
+        if model is not None:
+            try:
+                segments, _info = model.transcribe(
+                    str(path), language="en", vad_filter=vad_filter,
+                    condition_on_previous_text=False, beam_size=1,
+                    initial_prompt=initial_prompt)
+                text = " ".join(seg.text.strip() for seg in segments).strip()
+                return text, None
+            except Exception as e:
+                return None, str(e)
+        return _vosk_transcribe(path)
 
 
 def _vosk_transcribe(path):

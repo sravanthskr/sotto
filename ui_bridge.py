@@ -79,6 +79,9 @@ class Api:
         self._wake_on = False           # wake-word listener enabled (in-memory switch)
         self._wake_thread = None
         self._wake_hold = 0.0
+        self._locked = False
+        self._lock_cap = None
+        self._lock_result = {"ready": True, "text": "", "ts": 0.0}
         from config import load_settings as _ls
         self._overlay_enabled = bool(_ls().get("overlay_enabled", True))
         self._voice_active = False
@@ -433,10 +436,32 @@ class Api:
 
     # ---- live listening (feeds the presence visual) ----------------
     def listen_start(self):
-        from audio import MicStream
-        self._mic = MicStream()
-        self._mic.start()
-        return json.dumps({"ok": True})
+        """Start a server-side capture on the shared mic engine (used by the
+        voice lock screen). listen_level() gives the live level; listen_stop()
+        returns the transcribed text."""
+        if getattr(self, "_lock_cap", None) is not None:
+            return json.dumps({"ok": True})
+        try:
+            from audio import VoiceCapture
+            try:
+                from config import load_settings as _ls
+                _s = _ls()
+            except Exception:
+                _s = {}
+            cap = VoiceCapture(end_silence=0.9, vad_mode=int(_s.get("vad_mode", 3) or 3),
+                               no_speech_timeout=8.0, max_len=10.0)
+            self._lock_cap = cap
+            self._lock_result = {"ready": False, "text": "", "ts": time.time()}
+            self._mic = cap
+            self._wake_hold = max(getattr(self, "_wake_hold", 0.0), time.time() + 30.0)
+            cap.start()
+            _log("listen_start: capture via shared engine")
+            return json.dumps({"ok": True})
+        except Exception as e:
+            self._lock_cap = None
+            self._mic = None
+            _log(f"listen_start failed: {type(e).__name__}: {e}")
+            return json.dumps({"ok": False, "error": str(e)})
 
     def listen_level(self):
         mic = getattr(self, "_ov_mic", None) or getattr(self, "_mic", None)
@@ -446,18 +471,64 @@ class Api:
             return 0.0
 
     def listen_stop(self):
-        mic, self._mic = getattr(self, "_mic", None), None
-        if mic is None:
-            return json.dumps("")
-        wav = mic.stop()
-        text, err = voice.transcribe_wav(wav)
-        _log(f"listen_stop -> {str(text)[:120]!r} err={err}")
-        return json.dumps("" if err else (text or ""))
+        """Finish the lock capture. The heavy work (finalising the recording +
+        transcription) runs on a worker thread; the lock screen polls
+        lock_result() for the text so the UI never freezes."""
+        cap = getattr(self, "_lock_cap", None)
+        self._lock_cap = None
+        self._mic = None
+        if cap is None:
+            self._lock_result = {"ready": True, "text": "", "ts": time.time()}
+            return json.dumps({"ok": True})
+
+        def worker(c=cap):
+            try:
+                try:
+                    c.stop_now()
+                except Exception:
+                    pass
+                try:
+                    c.wait(12.0)
+                except Exception:
+                    pass
+                wav = ""
+                try:
+                    wav = c.stop()
+                except Exception as e:
+                    _log(f"lock listen stop error: {type(e).__name__}: {e}")
+                text, err = "", None
+                try:
+                    if wav and c.heard:
+                        text, err = voice.transcribe_wav(wav)
+                except Exception as e:
+                    err = str(e)
+                st = getattr(c, "stats", {}) or {}
+                _log(f"lock listen -> heard={c.heard} dur={st.get('dur')} peak={st.get('peak')} "
+                     f"text={str(text)[:120]!r} err={err}")
+                self._lock_result = {"ready": True, "text": str(text or ""), "ts": time.time()}
+            except Exception as e:
+                _log(f"lock listen worker error: {type(e).__name__}: {e}")
+                self._lock_result = {"ready": True, "text": "", "ts": time.time()}
+
+        self._lock_result = {"ready": False, "text": "", "ts": time.time()}
+        threading.Thread(target=worker, daemon=True).start()
+        _log("lock listen: finishing in background")
+        return json.dumps({"ok": True})
+
+    def lock_result(self):
+        """Polled by the lock screen until the transcription is ready."""
+        return json.dumps(getattr(self, "_lock_result",
+                                  {"ready": True, "text": "", "ts": 0.0}))
 
     def voice_turn(self):
         """Hands-free listen cycle (server-side): records until you stop
         talking, then transcribes and runs the turn. Used by the pill,
         the global hotkey and the in-app mic button."""
+        if getattr(self, "_locked", False):
+            self._push({"type": "notice", "text": "Locked - say your passphrase to unlock."})
+            self._push({"type": "state", "name": "idle"})
+            _log("voice_turn blocked (locked)")
+            return json.dumps(False)
         if self._busy or getattr(self, "_tts", False):
             if getattr(self, "_tts", False):
                 self._speak_muted = True
@@ -737,6 +808,18 @@ class Api:
             return json.dumps({"ok": False, "error": "No fallback password is set. Use 'Forgot passphrase?' to reset with your Windows sign-in."})
             
         return json.dumps({"ok": (pwd == stored_pwd)})
+
+    def set_lock_state(self, locked):
+        """The lock screen tells the backend when it's up, so voice
+        activations can't run turns while locked and the wake listener
+        stays out of the way."""
+        self._locked = bool(locked)
+        if self._locked:
+            self._wake_hold = max(getattr(self, "_wake_hold", 0.0), time.time() + 3600.0)
+        else:
+            self._wake_hold = 0.0
+        _log(f"lock state -> {'locked' if self._locked else 'unlocked'}")
+        return json.dumps(True)
 
     def set_lock_settings(self, curr_password, enabled, phrase, new_password):
         from config import load_settings, save_setting
@@ -1408,6 +1491,8 @@ class Api:
     # ---- floating overlay pill ------------------------------------------
     def overlay_on(self):
         """Live value the visibility controller polls (no file reads)."""
+        if getattr(self, "_locked", False):
+            return False
         return bool(self._overlay_enabled)
 
     def set_overlay(self, on):

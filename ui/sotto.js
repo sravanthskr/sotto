@@ -976,11 +976,13 @@
       
       if (res.enabled) {
         isAppLocked = true;
+        callIf('set_lock_state', true);
         const overlay = $('#lockOverlay');
         if (overlay) { overlay.hidden = false; overlay.style.display = 'flex'; }
-        startLockListening();
+        setTimeout(() => { if (isAppLocked) startLockListening(); }, 1000);
       } else {
         isAppLocked = false;
+        callIf('set_lock_state', false);
         const overlay = $('#lockOverlay');
         if (overlay) { overlay.hidden = true; overlay.style.display = 'none'; }
       }
@@ -992,6 +994,7 @@
     } catch(e) {
       // Never block the app on a lock-state read failure - fail open.
       isAppLocked = false;
+      callIf('set_lock_state', false);
       const overlay = $('#lockOverlay');
       if (overlay) { overlay.hidden = true; overlay.style.display = 'none'; }
     }
@@ -1007,7 +1010,17 @@
     if (live) live.textContent = 'Listening for passphrase…';
     if (orb) orb.style.transform = 'scale(1.1)';
 
-    try { await api.listen_start(); } catch { lockListening = false; return; }
+    let started = null;
+    try { started = await api.listen_start(); } catch { lockListening = false; return; }
+    try { started = (typeof started === 'string') ? JSON.parse(started) : started; } catch (e2) {}
+    if (started && started.ok === false) {
+      lockListening = false;
+      if (orb) orb.style.transform = 'scale(1)';
+      if (live) live.textContent = 'Microphone unavailable - use the text password.';
+      $('#lockPasswordSection').style.display = 'block';
+      $('#lockPasswordInput').focus();
+      return;
+    }
     
     let heardSound = false, lastLoud = performance.now(), maxSeen = 0, listenStart = performance.now();
     const lockTimer = setInterval(async () => {
@@ -1026,8 +1039,16 @@
         clearInterval(lockTimer);
         lockListening = false;
         if (orb) orb.style.transform = 'scale(1)';
+        callIf('log', 'lock flow: finishing capture');
         let text = '';
-        try { text = (await api.listen_stop()) || ''; } catch {}
+        try { await api.listen_stop(); } catch {}
+        for (let _i = 0; _i < 75; _i++) {
+          await wait(400);
+          let r2 = null;
+          try { r2 = await api.lock_result(); } catch {}
+          try { r2 = (typeof r2 === 'string') ? JSON.parse(r2) : r2; } catch (e4) {}
+          if (r2 && r2.ready) { text = r2.text || ''; break; }
+        }
         if (live && text) live.textContent = '“' + text + '”';
         
         if (text) {
@@ -1056,6 +1077,7 @@
   function unlockApp() {
     isAppLocked = false;
     lockListening = false;
+    callIf('set_lock_state', false);
     const overlay = $('#lockOverlay');
     if (overlay) {
       overlay.style.opacity = '0';

@@ -111,27 +111,34 @@ class MicStream:
         self._thread.start()
 
     def _run(self):
-        def callback(indata, frames, time_info, status):
-            raw = bytes(indata)
-            self._frames.append(raw)
-            samples = np.frombuffer(raw, dtype="int16")
-            if samples.size:
-                rms = float(np.sqrt((samples.astype("float32") ** 2).mean()))
-                self.level = min(1.0, rms / 3000.0)
-
+        # Backed by the shared mic hub (the old per-call device open is gone).
+        import queue as _q
+        hub = get_hub()
+        hubq = hub.subscribe()
+        cap_sr = hub.rate
+        down = hub.down
+        frame_b = int(cap_sr * 0.03) * 2
         try:
-            if down > 1:
+            while not self._stop.is_set():
                 try:
-                    sd.check_input_settings(device=self.device, samplerate=cap_sr, channels=1, dtype="int16")
-                except Exception:
-                    cap_sr, down = self.sr, 1
-                    frame_b = int(cap_sr * 0.03) * 2
-            with sd.RawInputStream(samplerate=cap_sr, channels=1, dtype="int16",
-                                   blocksize=1024, callback=callback, device=self.device):
-                while not self._stop.is_set():
-                    sd.sleep(25)
-        except Exception as e:      # mic busy / no device / bad rate
+                    raw = hubq.get(timeout=0.1)
+                except _q.Empty:
+                    continue
+                if len(raw) < frame_b:
+                    continue
+                raw = raw[:frame_b]
+                if down > 1:
+                    _a = np.frombuffer(raw, dtype="int16")
+                    _a = _a[:(len(_a) // down) * down].reshape(-1, down).mean(axis=1).astype("int16")
+                    raw = _a.tobytes()
+                self._frames.append(raw)
+                smp = np.frombuffer(raw, dtype="int16").astype("float32") / 32768.0
+                rms = float(np.sqrt((smp ** 2).mean())) if smp.size else 0.0
+                self.level = min(1.0, rms / 0.25)
+        except Exception as e:
             self.error = str(e)
+        finally:
+            hub.unsubscribe(hubq)
 
     def stop(self):
         self._stop.set()
