@@ -353,6 +353,13 @@ def _fade_then_hide(win):
         win.hide()
     except Exception:
         pass
+    # hard fallback: never allow a stray pill to stick on screen
+    try:
+        _h = _overlay_hwnd()
+        if _h and ctypes.windll.user32.IsWindowVisible(_h):
+            ctypes.windll.user32.ShowWindow(_h, 0)   # SW_HIDE
+    except Exception:
+        pass
     try:
         win.evaluate_js("document.body.classList.remove('bye')")
     except Exception:
@@ -454,6 +461,19 @@ def start_overlay_controller(api, overlay_win, main_win):
                         remember_if_moved("overlay-off")
                         _fade_then_hide(overlay_win)
                         visible = False
+                    else:
+                        # safety: overlay is off -> no pill may ever stick on screen
+                        _h0 = _overlay_hwnd()
+                        if _h0 and ctypes.windll.user32.IsWindowVisible(_h0):
+                            try:
+                                overlay_win.hide()
+                            except Exception:
+                                pass
+                            try:
+                                ctypes.windll.user32.ShowWindow(_h0, 0)
+                            except Exception:
+                                pass
+                            _log("overlay: pill force-hidden (overlay off)")
                     continue
 
                 if not _STATE["loaded"]:
