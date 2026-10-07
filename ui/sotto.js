@@ -963,6 +963,7 @@
   let isAppLocked = false;
   let failedLockAttempts = 0;
   let lockListening = false;
+  let lockStopping = false;
 
   async function checkAppLock() {
     const api = bridge();
@@ -1005,6 +1006,7 @@
     const api = bridge();
     if (!api) return;
     lockListening = true;
+    lockStopping = false;
     const orb = $('#lockOrb');
     const live = $('#lockLiveTranscript');
     if (live) live.textContent = 'Listening for passphrase…';
@@ -1036,6 +1038,8 @@
       const silentFor = (now - lastLoud) / 1000;
       
       if (elapsed > 0.8 && ((heardSound && silentFor > 1.0) || (!heardSound && elapsed > 8))) {
+        if (lockStopping) return;
+        lockStopping = true;
         clearInterval(lockTimer);
         lockListening = false;
         if (orb) orb.style.transform = 'scale(1)';
@@ -1062,14 +1066,14 @@
         }
         
         failedLockAttempts += 1;
-        if (failedLockAttempts >= 3) {
-          if (live) live.textContent = 'Voice match failed. Please enter text password.';
+        if (failedLockAttempts === 3) {
+          if (live) live.textContent = 'Voice match failed - you can also use the text password.';
           $('#lockPasswordSection').style.display = 'block';
           $('#lockPasswordInput').focus();
-        } else {
-          if (live) live.textContent = 'Passphrase didn\'t match. Retrying…';
-          setTimeout(() => { if (isAppLocked) startLockListening(); }, 1200);
+        } else if (live) {
+          live.textContent = (failedLockAttempts > 3) ? 'Still listening…' : 'Passphrase didn\'t match. Retrying…';
         }
+        setTimeout(() => { if (isAppLocked) startLockListening(); }, 1200);
       }
     }, 50);
   }
@@ -1077,6 +1081,7 @@
   function unlockApp() {
     isAppLocked = false;
     lockListening = false;
+    lockStopping = false;
     callIf('set_lock_state', false);
     const overlay = $('#lockOverlay');
     if (overlay) {

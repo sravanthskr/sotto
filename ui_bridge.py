@@ -791,7 +791,23 @@ class Api:
             overlap = len(target_words & spoken_words) / float(len(target_words))
             if overlap >= 0.7:
                 return json.dumps({"ok": True})
-                
+
+        # fuzzy word match (recognizer near-misses like "sesami" for "sesame")
+        try:
+            import difflib as _dl
+            tw_list = [w for w in target_clean.split() if w]
+            sw_list = [w for w in spoken_clean.split() if w]
+            if tw_list and sw_list:
+                hit = 0
+                for w in tw_list:
+                    best = max(_dl.SequenceMatcher(None, w, s).ratio() for s in sw_list)
+                    if best >= 0.8:
+                        hit += 1
+                if hit / float(len(tw_list)) >= 0.8:
+                    return json.dumps({"ok": True})
+        except Exception:
+            pass
+
         return json.dumps({"ok": False})
 
     def verify_password_lock(self, password_text):
