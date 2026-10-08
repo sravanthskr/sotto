@@ -1409,6 +1409,29 @@
     });
 
     $('#voiceSelect').addEventListener('change', (e) => callIf('set_voice', e.target.value));
+    const btnAddVoice = $('#btnAddVoice');
+    if (btnAddVoice) {
+      btnAddVoice.addEventListener('click', async () => {
+        toast('Choose your voice model (.pth) in the picker', 'VOICE', 2600);
+        const res = await callIf('add_custom_voice');
+        let r = null; try { r = JSON.parse(res); } catch (e) {}
+        if (r && r.ok) {
+          try {
+            const info2 = JSON.parse((await callIf('info')) || '{}');
+            if (info2.voices?.length) {
+              $('#voiceSelect').innerHTML = info2.voices.map(v => `<option>${escapeHtml(v)}</option>`).join('');
+              const want = r.name ? (r.name.charAt(0).toUpperCase() + r.name.slice(1) + ' (custom)') : '';
+              if (want && info2.voices.includes(want)) $('#voiceSelect').value = want;
+            }
+          } catch (e2) {}
+          toast('Voice "' + (r.name || '') + '" added - pick it in Spoken voice.', 'VOICE', 3600);
+        } else if (r && r.cancelled) {
+          /* user closed the picker - nothing to say */
+        } else {
+          toast((r && r.error) || 'Could not add that voice.', 'VOICE', 3200);
+        }
+      });
+    }
     const provListEl = $('#providerList');
     if (provListEl) {
       provListEl.addEventListener('click', async (ev) => {

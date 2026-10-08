@@ -953,6 +953,55 @@ class Api:
         threading.Thread(target=calendar_api.start_google_oauth, daemon=True).start()
         return json.dumps("Browser opened - finish the Google sign-in there.")
 
+    def add_custom_voice(self):
+        """Let the user add their own RVC voice: pick the .pth (optional
+        sibling .index), copy into %LOCALAPPDATA%\\RealAssistant\\voices\\<name>."""
+        try:
+            import shutil as _sh
+            from pathlib import Path as _P
+            import voice_convert as _vc
+            win = getattr(self, "_window", None)
+            if win is None:
+                return json.dumps({"ok": False, "error": "No window"})
+            try:
+                import webview as _wv
+                picked = win.create_file_dialog(_wv.OPEN_DIALOG, allow_multiple=False,
+                                                file_types=("RVC voice model (*.pth)", "All files (*.*)"))
+            except Exception as e:
+                _log(f"add_custom_voice dialog error: {type(e).__name__}: {e}")
+                return json.dumps({"ok": False, "error": "Could not open the file picker."})
+            if not picked:
+                return json.dumps({"ok": False, "cancelled": True})
+            src = _P(str(picked[0]))
+            if not src.exists() or src.suffix.lower() != ".pth":
+                return json.dumps({"ok": False, "error": "Please pick a .pth voice model file."})
+            import re as _re
+            name = _re.sub(r"[^a-z0-9_-]+", "-", src.stem.lower()).strip("-") or "voice"
+            base = _P(os.environ.get("LOCALAPPDATA", str(_P.home()))) / "RealAssistant" / "voices"
+            dest = base / name
+            dest.mkdir(parents=True, exist_ok=True)
+            _sh.copy2(str(src), str(dest / (name + ".pth")))
+            idx = src.with_suffix(".index")
+            if not idx.exists():
+                try:
+                    cands = sorted(src.parent.glob("*.index"))
+                    idx = cands[0] if len(cands) == 1 else None
+                except Exception:
+                    idx = None
+            has_index = bool(idx and idx.exists())
+            if has_index:
+                _sh.copy2(str(idx), str(dest / (name + ".index")))
+            _log(f"add_custom_voice -> {name} (index={'yes' if has_index else 'no'})")
+            voices = []
+            try:
+                voices = [v.title() + " (custom)" for v in _vc.available_voices()]
+            except Exception:
+                pass
+            return json.dumps({"ok": True, "name": name, "voices": voices})
+        except Exception as e:
+            _log(f"add_custom_voice error: {type(e).__name__}: {e}")
+            return json.dumps({"ok": False, "error": str(e)})
+
     def get_provider_keys(self):
         """Which providers have a UI-stored key (booleans only)."""
         try:
