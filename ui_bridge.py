@@ -106,6 +106,15 @@ class Api:
 
     # ---- lifecycle -----------------------------------------------------
     def start(self):
+        # BYOK: pull UI-stored provider keys into the environment (off-thread)
+        def _load_keys():
+            try:
+                import accounts as _acc
+                n = _acc.apply_provider_keys()
+                _log(f"BYOK: {n} stored provider key(s) loaded")
+            except Exception as e:
+                _log(f"BYOK load error: {type(e).__name__}: {e}")
+        threading.Thread(target=_load_keys, daemon=True).start()
         self.assistant.start()
         self.assistant.start_watcher()
 
@@ -944,6 +953,35 @@ class Api:
         threading.Thread(target=calendar_api.start_google_oauth, daemon=True).start()
         return json.dumps("Browser opened - finish the Google sign-in there.")
 
+    def get_provider_keys(self):
+        """Which providers have a UI-stored key (booleans only)."""
+        try:
+            import accounts as _acc
+            return json.dumps(_acc.get_provider_keys())
+        except Exception:
+            return json.dumps({})
+
+    def set_provider_key(self, env_name, key):
+        """Set/clear a BYOK provider key from Settings. Stored DPAPI-encrypted
+        and applied to the running engine immediately."""
+        try:
+            import accounts as _acc
+            env = str(env_name or "").strip()
+            val = str(key or "").strip()
+            if not env:
+                return json.dumps({"ok": False, "error": "missing provider"})
+            ok = bool(_acc.set_provider_key(env, val))
+            if ok:
+                if val:
+                    os.environ[env] = val
+                else:
+                    os.environ.pop(env, None)
+            _log(f"set_provider_key -> {env}: {'set' if val else 'cleared'} ok={ok}")
+            return json.dumps({"ok": ok})
+        except Exception as e:
+            _log(f"set_provider_key error: {type(e).__name__}: {e}")
+            return json.dumps({"ok": False, "error": str(e)})
+
     def set_google_credentials(self, client_id, client_secret):
         from config import save_setting
         cid = str(client_id or "").strip()
@@ -1040,7 +1078,8 @@ class Api:
             "custom_voices": custom,
             "providers": [
                 {"name": p["name"], "model": p.get("model", ""),
-                 "key": bool(os.environ.get(p.get("api_key_env", ""), "").strip())}
+                 "key": bool(os.environ.get(p.get("api_key_env", ""), "").strip()),
+                 "env": p.get("api_key_env", "")}
                 for p in PROVIDERS],
         })
 

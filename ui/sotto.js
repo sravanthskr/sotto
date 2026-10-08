@@ -278,6 +278,18 @@
     });
   }
 
+  async function refreshProviderKeyBadges() {
+    const raw = await callIf('get_provider_keys');
+    let stored = {};
+    try { stored = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {}); } catch (e) {}
+    $$('#providerList .provrow').forEach((row) => {
+      const env = row.getAttribute('data-env') || '';
+      const el = row.querySelector('.provmeta');
+      if (!el) return;
+      if (stored[env]) el.textContent = 'KEY SAVED';
+    });
+  }
+
   async function refreshPillPos() {
     const sp = $('#selPillPos');
     if (!sp) return;
@@ -1312,8 +1324,23 @@
           $('#voiceSelect').value = info.current_voice || info.voices[0];
         }
         if (info.providers?.length) {
-          $('#providerList').innerHTML = info.providers.map(p =>
-            `<div class="result"><span class="r-top"><span class="r-name">${escapeHtml(p.name)}</span><span class="r-meta">${p.key ? 'KEY SET' : 'NO KEY'}</span></span><span class="r-take">${escapeHtml(p.model || '')}</span></div>`).join('');
+          $('#providerList').innerHTML = info.providers.map((p) => {
+            const env = String(p.env || '');
+            return '<div class="result provrow" data-env="' + escapeHtml(env) + '" data-name="' + escapeHtml(String(p.name || '')) + '">' +
+              '<span class="r-top"><span class="r-name">' + escapeHtml(p.name) + '</span><span class="r-meta provmeta">' + (p.key ? 'KEY SET' : 'NO KEY') + '</span></span>' +
+              '<span class="r-take">' + escapeHtml(p.model || '') + '</span>' +
+              '<div class="provkey" hidden>' +
+                '<div class="typewrap" style="margin-top:8px"><input type="password" class="provkeyinput" placeholder="Paste the API key" autocomplete="off"></div>' +
+                '<div style="display:flex;gap:8px;margin-top:8px">' +
+                  '<button class="btn-silent provkeysave">Save key</button>' +
+                  '<button class="btn-quiet provkeyclear">Remove key</button>' +
+                  '<button class="btn-quiet provkeycancel">Cancel</button>' +
+                '</div>' +
+              '</div>' +
+              '<button class="btn-quiet provkeytoggle" style="margin-top:6px">' + (p.key ? 'Change key' : 'Set key') + '</button>' +
+            '</div>';
+          }).join('');
+          refreshProviderKeyBadges();
         }
         if (info.version) $('#aboutLine').textContent = 'Sotto · ' + info.version;
         if (info.apps) $('#scanCount').textContent = info.apps + ' apps ready — rescan anytime';
@@ -1382,6 +1409,43 @@
     });
 
     $('#voiceSelect').addEventListener('change', (e) => callIf('set_voice', e.target.value));
+    const provListEl = $('#providerList');
+    if (provListEl) {
+      provListEl.addEventListener('click', async (ev) => {
+        const row = ev.target.closest('.provrow');
+        if (!row) return;
+        const box = row.querySelector('.provkey');
+        if (ev.target.closest('.provkeytoggle')) {
+          if (box) { box.hidden = !box.hidden; if (!box.hidden) { const inp = row.querySelector('.provkeyinput'); if (inp) inp.focus(); } }
+          return;
+        }
+        if (ev.target.closest('.provkeycancel')) { if (box) box.hidden = true; return; }
+        if (ev.target.closest('.provkeysave')) {
+          const inp = row.querySelector('.provkeyinput');
+          const val = inp ? String(inp.value || '').trim() : '';
+          if (!val) { toast('Paste a key first.', 'KEYS', 1800); return; }
+          const res = await callIf('set_provider_key', row.getAttribute('data-env'), val);
+          let ok = false; try { ok = !!(JSON.parse(res) || {}).ok; } catch (e) {}
+          if (ok) {
+            inp.value = '';
+            if (box) box.hidden = true;
+            toast((row.getAttribute('data-name') || 'Provider') + ' key saved - used immediately.', 'KEYS', 2600);
+            const meta = row.querySelector('.provmeta'); if (meta) meta.textContent = 'KEY SAVED';
+          } else { toast('Could not save that key.', 'KEYS', 2200); }
+          return;
+        }
+        if (ev.target.closest('.provkeyclear')) {
+          const res = await callIf('set_provider_key', row.getAttribute('data-env'), '');
+          let ok = false; try { ok = !!(JSON.parse(res) || {}).ok; } catch (e) {}
+          if (ok) {
+            if (box) box.hidden = true;
+            toast((row.getAttribute('data-name') || 'Provider') + ' key removed.', 'KEYS', 2200);
+            const meta = row.querySelector('.provmeta'); if (meta) meta.textContent = 'NO KEY';
+          }
+          return;
+        }
+      });
+    }
     $('#btnScan').addEventListener('click', () => runAppScan());
     $('#btnEmailSetup').addEventListener('click', () => openSheet('sheetEmail'));
     $('#btnGoogleSetup').addEventListener('click', () => {

@@ -131,3 +131,48 @@ def status_lines():
     for p, v in (data.get("oauth") or {}).items():
         out.append(f"{p}: {v.get('email') or 'connected'}")
     return out or ["nothing connected yet"]
+
+
+def set_provider_key(env_name, key):
+    """Store (or clear) a BYOK provider key, DPAPI-encrypted. Never plain text."""
+    k = str(env_name or "").strip()
+    if not k:
+        return False
+    data = load()
+    provs = dict(data.get("providers") or {})
+    if str(key or "").strip():
+        provs[k] = enc(str(key).strip())
+    else:
+        provs.pop(k, None)
+    data["providers"] = provs
+    save(data)
+    return True
+
+
+def get_provider_keys():
+    """{env_name: True/False} - booleans only; keys never leave the vault."""
+    data = load()
+    provs = data.get("providers") or {}
+    out = {}
+    for k, v in provs.items():
+        try:
+            out[k] = bool(str(dec(v) or "").strip())
+        except Exception:
+            out[k] = False
+    return out
+
+
+def apply_provider_keys():
+    """Load stored BYOK keys into the process environment. Returns count."""
+    data = load()
+    provs = data.get("providers") or {}
+    n = 0
+    for k, v in provs.items():
+        try:
+            text = str(dec(v) or "").strip()
+            if text:
+                os.environ[str(k)] = text
+                n += 1
+        except Exception:
+            continue
+    return n
